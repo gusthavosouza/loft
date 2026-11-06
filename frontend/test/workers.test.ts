@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { workerState, groupLook, initials, layout, HAT_COLORS, NEUTRAL_HAT, MIN_CELL, MAX_CELL } from "../src/lib/workers.ts";
+import { workerState, groupLook, initials, sceneLayout, HAT_COLORS, NEUTRAL_HAT } from "../src/lib/workers.ts";
 
 test("a worker digs while its agent runs and rests otherwise", () => {
   assert.equal(workerState({ status: "running" }), "digging");
@@ -32,16 +32,31 @@ test("an agent without a group is neutral, whatever its project", () => {
   assert.deepEqual(groupLook({}), { hat: NEUTRAL_HAT, initials: "" });
 });
 
-test("the layout fits 1, 8 and 40 workers at 1440, 390 and 320 px without sideways overflow", () => {
-  for (const width of [1440, 390, 320]) {
-    for (const count of [1, 8, 40]) {
-      const { cols, rows, cell } = layout(count, width);
-      assert.ok(cols >= 1 && cols * cell <= width, `${count} at ${width}: ${cols} x ${cell}px`);
-      assert.ok(cell >= MIN_CELL && cell <= MAX_CELL);
-      assert.ok(cols * rows >= count && (rows - 1) * cols < count, "every worker has a cell, no empty row");
+test("the scene fits 1, 8 and 40 workers on a wide and a narrow canvas: inside it, diggers apart, resters on the surface", () => {
+  for (const [w, h] of [[1000, 590], [400, 800], [400, 500]]) {
+    for (const total of [1, 8, 40]) {
+      for (const dig of [0, Math.floor(total / 2), total]) {
+        const l = sceneLayout(dig, total - dig, w, h);
+        assert.equal(l.digs.length, dig);
+        assert.equal(l.rests.length, total - dig);
+        const label = `${dig}+${total - dig} on ${w}x${h}`;
+        for (const p of [...l.digs, ...l.rests]) {
+          assert.ok(p.x - p.s / 2 >= 0 && p.x + p.s / 2 <= w && p.y - p.s >= 0 && p.y <= h, `inside: ${label}`);
+        }
+        for (const p of l.digs) assert.ok(p.y - p.s >= l.surfY, `diggers are underground: ${label}`);
+        for (const p of l.rests) assert.ok(p.y <= l.surfY + 8, `resters are on the surface: ${label}`);
+        for (const [i, a] of l.digs.entries()) {
+          for (const b of l.digs.slice(i + 1)) {
+            const apart = Math.abs(a.x - b.x) >= (a.s + b.s) / 2 - 1 || Math.abs(a.y - b.y) >= (a.s + b.s) / 2 - 1;
+            assert.ok(apart, `diggers don't overlap: ${label}`);
+          }
+        }
+      }
     }
   }
-  assert.deepEqual(layout(1, 320), { cols: 1, rows: 1, cell: 104 });
-  assert.deepEqual(layout(40, 320), { cols: 6, rows: 7, cell: 53 });
-  assert.deepEqual(layout(0, 320), { cols: 0, rows: 0, cell: 0 });
+});
+
+test("a lone worker is big and many are smaller", () => {
+  assert.ok(sceneLayout(1, 0, 1000, 590).digs[0].s > sceneLayout(40, 0, 1000, 590).digs[0].s * 1.3);
+  assert.ok(sceneLayout(0, 1, 1000, 590).rests[0].s > sceneLayout(0, 40, 1000, 590).rests[0].s);
 });
