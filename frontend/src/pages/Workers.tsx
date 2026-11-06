@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, ROLES, type Agent } from "../lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "../lib/events";
-import { diffEvents, groupLook, kindOf, keyOf, pickHall, phaseOf, progress, PHASE_NAMES, type Overview, type RunningDelivery } from "../lib/workers";
+import { caption, diffEvents, groupLook, kindOf, keyOf, pickHall, phaseOf, progress, PHASE_NAMES, type Overview, type RunningDelivery } from "../lib/workers";
 import { geometry, makeWorld, pick, pushEvent, render, rescale, setFinished, setHall, stateLabel, step, syncAgents, taskLine, type Geo, type HallView, type Worker, type World } from "../lib/colony";
 
 const reducedQuery = () => window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -205,9 +205,10 @@ export default function WorkersPage() {
   const pct = view ? Math.round(view.pct) : 0;
   const ph = phaseOf(view?.pct ?? 0);
   let status: string, tone: string, glow: string;
-  if (ui.need) { status = `⚑ WAITING FOR YOU — ${ui.need.toUpperCase()} NEEDS AN ANSWER`; tone = "text-[#ffb547]"; glow = "0 0 14px rgba(255,181,71,.55)"; }
-  else if (ui.celebrate) { status = `★ RELEASING — ${(view?.title ?? "SPEC").toUpperCase()} COMPLETE · SPEC MERGED`; tone = "text-[#ffe066]"; glow = "0 0 16px rgba(255,224,102,.6)"; }
-  else if (ui.building + ui.inspecting > 0) { status = `● WORKING — ${ui.building} AGENTS BUILDING${view ? ` ${view.title.toUpperCase()}` : ""} · ${ui.inspecting} INSPECTING · ${ui.resting} RESTING`; tone = "text-[#5ef08a]"; glow = "0 0 14px rgba(94,240,138,.55)"; }
+  const cap = caption({ needsYou: !!ui.need, releasing: !!ui.celebrate, working: ui.building + ui.inspecting > 0 });
+  if (cap === "Waiting for you") { status = `⚑ WAITING FOR YOU — ${(ui.need ?? "").toUpperCase()} NEEDS AN ANSWER`; tone = "text-[#ffb547]"; glow = "0 0 14px rgba(255,181,71,.55)"; }
+  else if (cap === "Releasing") { status = `★ RELEASING — ${(view?.title ?? "SPEC").toUpperCase()} COMPLETE · SPEC MERGED`; tone = "text-[#ffe066]"; glow = "0 0 16px rgba(255,224,102,.6)"; }
+  else if (cap === "Working") { status = `● WORKING — ${ui.building} AGENTS BUILDING${view ? ` ${view.title.toUpperCase()}` : ""} · ${ui.inspecting} INSPECTING · ${ui.resting} RESTING`; tone = "text-[#5ef08a]"; glow = "0 0 14px rgba(94,240,138,.55)"; }
   else { status = `◑ RESTING — ${ui.resting} AGENTS AT CAMP${view ? "" : " · NO DELIVERY RUNNING"}`; tone = "text-[#9fc6ff]"; glow = "0 0 12px rgba(159,198,255,.45)"; }
   const btn = (on: boolean, label: string, onClick: () => void) => (
     <button type="button" onClick={onClick} aria-pressed={on} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd27a] ${on ? "bg-[#ffd27a] text-[#1d1424]" : "bg-white/10 text-[#efe6d8] hover:bg-white/20"}`}>{label}</button>

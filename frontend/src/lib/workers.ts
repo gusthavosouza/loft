@@ -98,3 +98,12 @@ export function diffEvents(prev: Overview | null, next: Overview): HallEvent[] {
   }
   return out;
 }
+
+/* ---------- the caption: one answer for the page's dock and the navigation button ---------- */
+
+export type Caption = "Waiting for you" | "Releasing" | "Working" | "Resting";
+
+/** What the team is doing, in priority order: a Needs you item is open, a spec PR is being released (marked ready or merged), any agent runs, else resting. */
+export function caption(s: { needsYou: boolean; releasing: boolean; working: boolean }): Caption {
+  return s.needsYou ? "Waiting for you" : s.releasing ? "Releasing" : s.working ? "Working" : "Resting";
+}

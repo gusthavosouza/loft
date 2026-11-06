@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
+import { caption, workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
 
 test("a worker works while its agent runs and rests otherwise", () => {
   assert.equal(workerState({ status: "running" }), "working");
@@ -58,4 +58,13 @@ test("events: a ticket closing, one going into review, the spec merging; none on
   const merged: Overview = { running: [], merged: [{ repo: "o/r", spec: 1, title: "Spec 1" }] };
   assert.deepEqual(diffEvents(after, merged), [{ type: "merged", key: "o/r#1", spec: 1, title: "Spec 1" }]);
   assert.deepEqual(diffEvents(after, { running: [], merged: [] }), [], "closed without a merge is no celebration");
+});
+
+test("the caption follows the priority: Waiting for you, Releasing, Working, Resting", () => {
+  const f = { needsYou: false, releasing: false, working: false };
+  assert.equal(caption(f), "Resting");
+  assert.equal(caption({ ...f, working: true }), "Working");
+  assert.equal(caption({ ...f, working: true, releasing: true }), "Releasing");
+  assert.equal(caption({ needsYou: true, releasing: true, working: true }), "Waiting for you");
+  assert.equal(caption({ ...f, needsYou: true }), "Waiting for you");
 });
