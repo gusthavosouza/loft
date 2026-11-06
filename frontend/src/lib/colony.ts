@@ -83,11 +83,13 @@ export function makeWorld(): World {
   };
 }
 
-export type Geo = { W: number; H: number; s: number; base: number; campL: number; campR: number; fireX: number; siteL: number; siteR: number; siteX: number; qL: number; qR: number };
+export type Geo = { W: number; H: number; s: number; base: number; campL: number; campR: number; fireX: number; signX: number; siteL: number; siteR: number; siteX: number; qL: number; qR: number };
 
 export function geometry(W: number, H: number): Geo {
   const s = clamp(Math.min(W / 1050, H / 470), 0.5, 1.25);
-  return { W, H, s, base: H * 0.6, campL: W * 0.02, campR: W * 0.24, fireX: W * 0.12, siteL: W * 0.33, siteR: W * 0.58, siteX: W * 0.455, qL: W * 0.67, qR: W * 0.985 };
+  // a narrow screen gives the camp (and the crowd in it) more of the width, and the quarry less
+  if (W < 600) return { W, H, s, base: H * 0.6, campL: W * 0.01, campR: W * 0.29, fireX: W * 0.14, signX: W * 0.3, siteL: W * 0.37, siteR: W * 0.62, siteX: W * 0.495, qL: W * 0.7, qR: W * 0.985 };
+  return { W, H, s, base: H * 0.6, campL: W * 0.02, campR: W * 0.24, fireX: W * 0.12, signX: W * 0.27, siteL: W * 0.33, siteR: W * 0.58, siteX: W * 0.455, qL: W * 0.67, qR: W * 0.985 };
 }
 export function groundY(g: Geo, x: number): number {
   let y = g.base;
@@ -197,7 +199,7 @@ function handle(w: World, e: HallEvent) {
 }
 
 export function step(w: World, g: Geo, dt: number) {
-  const v = 62 * g.s * w.speed;
+  const v = 90 * g.s * w.speed;
   w.t += dt;
   w.par += (w.parTarget - w.par) * Math.min(1, dt * 2);
   for (const e of w.events.splice(0)) handle(w, e);
@@ -222,11 +224,11 @@ export function step(w: World, g: Geo, dt: number) {
       case S.RESTING:
         a.dir = Math.sign(g.fireX - a.x) || 1; a.phase += dt * 1.6;
         if (a.pose === "sleep") { a.zT -= dt; if (a.zT <= 0) { a.zT = 1.3; emit(w, { type: "z", x: a.x + 6 * g.s * a.dir, y: a.y - 30 * g.s, vx: 6, vy: -14, life: 2.4, max: 2.4, size: 9 * g.s }); } }
-        if (a.on) a.state = dev ? S.DISPATCHING : a.kind === "lead" ? S.PLANNING : S.STANDBY;
+        if (a.on) { a.actT -= dt * w.speed; if (a.actT <= 0) a.state = dev ? S.DISPATCHING : a.kind === "lead" ? S.PLANNING : S.STANDBY; } // each leaves a moment after the others
         break;
       case S.DISPATCHING:
         a.phase += dt * 9 * w.speed;
-        if (moveTo(a, workX(g, a.n), v, dt)) { a.state = S.WORKING; a.actT = rand(3, 6); a.dir = 1; }
+        if (moveTo(a, workX(g, a.n), v, dt)) { a.state = S.WORKING; a.actT = rand(7, 12); a.dir = 1; }
         break;
       case S.WORKING: {
         a.phase += dt * (a.action === "hammer" ? 8 : 5) * w.speed;
@@ -238,7 +240,7 @@ export function step(w: World, g: Geo, dt: number) {
       }
       case S.HAULING:
         a.phase += dt * (a.rush ? 10 : 6) * w.speed;
-        if (moveTo(a, dropX(g, a.n), v * (a.rush ? 1.4 : 0.62), dt)) {
+        if (moveTo(a, dropX(g, a.n), v * (a.rush ? 1.4 : 0.85), dt)) {
           deliver(w, g, a); a.rush = false;
           a.state = a.on ? S.DISPATCHING : S.RETURNING;
         }
@@ -262,7 +264,7 @@ export function step(w: World, g: Geo, dt: number) {
       case S.RETURNING:
         a.phase += dt * 8 * w.speed; a.carry = false;
         if (a.on) { a.state = dev ? S.DISPATCHING : a.kind === "lead" ? S.PLANNING : S.STANDBY; break; }
-        if (moveTo(a, cx, v * 0.85, dt)) { a.state = S.RESTING; a.pose = REST_POSES[Math.floor(Math.random() * 3)]; }
+        if (moveTo(a, cx, v * 0.85, dt)) { a.state = S.RESTING; a.actT = rand(0, 5); a.pose = REST_POSES[Math.floor(Math.random() * 3)]; }
         break;
     }
     if (a.moving) { a.dustT -= dt * w.speed; if (a.dustT <= 0) { a.dustT = 0.22; emit(w, { type: "dust", x: a.x - a.dir * 4 * g.s, y: a.y - 1, vx: -a.dir * rand(5, 20), vy: rand(-18, -6), life: 0.5, max: 0.5, size: rand(1.5, 2.6) * g.s, color: "#b8936a" }); } }
@@ -373,7 +375,7 @@ function drawGround(ctx: C, g: Geo, w: World) {
   ctx.fillStyle = "#4b4858"; for (let x = fx0; x < fx1; x += 14 * s) ctx.fillRect(x, fy + 4 * s, 1.5, 6 * s);
   ctx.restore();
   const edge = (x0: number, x1: number, color: string, width: number, dy: number) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round"; ctx.beginPath(); for (let x = x0; x <= x1; x += 4) { const y = groundY(g, x) + dy; x === x0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); } ctx.stroke(); };
-  edge(0, g.W * 0.27, "#6f9150", 5 * s, 1);
+  edge(0, g.signX, "#6f9150", 5 * s, 1);
   edge(g.W * 0.26, g.qL, "#c79b62", 7 * s, 3);
   edge(g.qL - 6, g.qR + 4, "#ddb877", 5 * s, 2);
   edge(g.qR, g.W, "#6f9150", 5 * s, 1);
@@ -418,8 +420,8 @@ function drawCamp(ctx: C, g: Geo, w: World) {
     ctx.quadraticCurveTo(g.fireX + wd * 0.9 * s, fy - ht * 0.6 * s * f, g.fireX + wd * s, fy - 5 * s); ctx.closePath(); ctx.fill();
   };
   fl(10, 30, "#ff5a3a", 0); fl(7.5, 23, "#ff9a3c", 1.3); fl(4.5, 15, "#ffe07a", 2.1);
-  signpost(ctx, g, g.W * 0.27, "CAMP", true);
-  signpost(ctx, g, g.W * 0.64, "QUARRY", false);
+  signpost(ctx, g, g.signX, "CAMP", true);
+  signpost(ctx, g, g.qL - g.W * 0.03, "QUARRY", false);
 }
 
 function drawQuarry(ctx: C, g: Geo, w: World) {
@@ -690,13 +692,13 @@ function drawLabels(ctx: C, g: Geo, w: World) {
   ctx.globalAlpha = 1;
   const view = w.hall.view, hb = groundY(g, g.siteX);
   if (phaseOf(w.hall.shown) < 5 || !view) {
-    // site board with the spec's number
-    const bx = g.siteL - 10 * s, by = hb;
+    // site board with the spec's number, starting at the site's left edge (clear of the camp sign)
+    const bx = g.siteL + 6 * s, by = hb;
     ctx.fillStyle = "#5a3d24"; ctx.fillRect(bx - 1.5 * s, by - 30 * s, 3 * s, 30 * s);
     ctx.font = `700 ${Math.round(8 * s + 3)}px "Chakra Petch", sans-serif`;
-    const t = view ? `SPEC #${view.spec}` : "WAITING FOR A SPEC", tw = ctx.measureText(t).width + 12;
-    ctx.fillStyle = "#e8d3a8"; ctx.strokeStyle = OUT; ctx.lineWidth = 1.5; rr(ctx, bx - tw / 2, by - 44 * s, tw, 15 * s, 3); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#3a2414"; ctx.textAlign = "center"; ctx.fillText(t, bx, by - 36.5 * s);
+    const t = view ? `SPEC #${view.spec}` : "NO SPEC YET", tw = ctx.measureText(t).width + 12;
+    ctx.fillStyle = "#e8d3a8"; ctx.strokeStyle = OUT; ctx.lineWidth = 1.5; rr(ctx, g.siteL, by - 44 * s, tw, 15 * s, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#3a2414"; ctx.textAlign = "center"; ctx.fillText(t, g.siteL + tw / 2, by - 36.5 * s);
   }
   if (view && w.selected === "hall") {
     const ph = phaseOf(w.hall.shown);
