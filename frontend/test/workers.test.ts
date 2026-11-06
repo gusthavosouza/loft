@@ -17,8 +17,8 @@ test("initials are 1–3 letters from the group label", () => {
 });
 
 test("a group's hat color is stable, from the palette, and ignores case", () => {
-  const a = groupLook({ group: "Dineout", project: "api" });
-  assert.deepEqual(groupLook({ group: "Dineout", project: "web" }), a);
+  const a = groupLook({ group: "Dineout" });
+  assert.deepEqual(groupLook({ group: "Dineout" }), a);
   assert.deepEqual(groupLook({ group: "dineout" }).hat, a.hat);
   assert.ok(HAT_COLORS.includes(a.hat));
   assert.equal(a.initials, "DI");
@@ -26,9 +26,10 @@ test("a group's hat color is stable, from the palette, and ignores case", () => 
   assert.ok(hats.size > 2, "different groups mostly differ");
 });
 
-test("without a group the main project is the label; with neither the look is neutral", () => {
-  assert.equal(groupLook({ group: "", project: "notes" }).initials, "NO");
-  assert.deepEqual(groupLook({ group: " ", project: "" }), { hat: NEUTRAL_HAT, initials: "" });
+test("an agent without a group is neutral, whatever its project", () => {
+  assert.deepEqual(groupLook({ group: "" }), { hat: NEUTRAL_HAT, initials: "" });
+  assert.deepEqual(groupLook({ group: " " }), { hat: NEUTRAL_HAT, initials: "" });
+  assert.deepEqual(groupLook({}), { hat: NEUTRAL_HAT, initials: "" });
 });
 
 test("the layout fits 1, 8 and 40 workers at 1440, 390 and 320 px without sideways overflow", () => {

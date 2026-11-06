@@ -27,9 +27,9 @@ export function initials(label: string): string {
   return letters.join("").toUpperCase();
 }
 
-/** The look of a worker from its agent's group label (else its main project): hat color and T-shirt initials. */
-export function groupLook(agent: { group?: string; project?: string }): { hat: string; initials: string } {
-  const label = agent.group?.trim() || agent.project?.trim() || ""; // its team, as `teamOf` in team.ts (not imported: tests run this file bare)
+/** The look of a worker from its agent's group label (a group is only a label): hat color and T-shirt initials. No group: neutral. */
+export function groupLook(agent: { group?: string }): { hat: string; initials: string } {
+  const label = agent.group?.trim() ?? "";
   if (!label) return { hat: NEUTRAL_HAT, initials: "" };
   return { hat: HAT_COLORS[hash(label.toLowerCase()) % HAT_COLORS.length], initials: initials(label) };
 }
