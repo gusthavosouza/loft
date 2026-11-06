@@ -30,7 +30,7 @@ test("a group's look is stable, from the palette, and ignores case; the shirt ne
 });
 
 test("an agent without a group gets the neutral look", () => {
-  for (const group of [undefined, "", "  "]) assert.deepEqual(groupLook({ group }), { ...NEUTRAL, straw: false, initials: "" });
+  for (const group of [undefined, "", "  "]) assert.deepEqual(groupLook({ group }), { ...NEUTRAL, initials: "" });
 });
 
 const tk = (number: number, state: string) => ({ number, title: `T${number}`, state });

@@ -13,7 +13,7 @@ export function kindOf(role?: string): Kind {
   return role === "lead" ? "lead" : role === "qa" ? "qa" : role === "security" ? "security" : role === "code_reviewer" ? "reviewer" : "dev";
 }
 
-/** Hat bands that read well on the grass. */
+/** Hat colors that read well on the colony's dusk sky and earth. */
 export const HAT_COLORS = ["#d9463b", "#e8a33b", "#4a7fd6", "#3cae76", "#c25b9e", "#2f9a8a", "#7b4bb0", "#e0703a"];
 const SHIRTS = ["#3f7fd0", "#c4473c", "#2f9a8a", "#7b4bb0", "#e0a53a", "#8a5a30", "#3cae76", "#c25b9e"];
 /** Agents with no group share this look. */
@@ -34,13 +34,13 @@ export function initials(label: string): string {
   return letters.join("").toUpperCase();
 }
 
-/** The look of a worker from its agent's group label (a group is only a label): hat band, shirt, hat style and initials. No group: neutral. */
-export function groupLook(agent: { group?: string }): { hat: string; shirt: string; straw: boolean; initials: string } {
+/** The look of a worker from its agent's group label (a group is only a label): hat, shirt and initials. No group: neutral. */
+export function groupLook(agent: { group?: string }): { hat: string; shirt: string; initials: string } {
   const label = agent.group?.trim() ?? "";
-  if (!label) return { ...NEUTRAL, straw: false, initials: "" };
+  if (!label) return { ...NEUTRAL, initials: "" };
   const h = hash(label.toLowerCase());
   const hat = h % HAT_COLORS.length;
-  return { hat: HAT_COLORS[hat], shirt: SHIRTS[(h >>> 8) % SHIRTS.length === hat ? ((h >>> 8) + 1) % SHIRTS.length : (h >>> 8) % SHIRTS.length], straw: (h >>> 16) % 2 === 0, initials: initials(label) };
+  return { hat: HAT_COLORS[hat], shirt: SHIRTS[(h >>> 8) % SHIRTS.length === hat ? ((h >>> 8) + 1) % SHIRTS.length : (h >>> 8) % SHIRTS.length], initials: initials(label) };
 }
 
 /* ---------- the hall: the spec of the most recently active running Delivery ---------- */

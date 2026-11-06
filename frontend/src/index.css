@@ -164,16 +164,7 @@ body::after {
 .prose-chat th, .prose-chat td { @apply border-b border-line px-2 py-1 text-left; }
 .prose-chat blockquote { @apply border-l-2 border-line-strong pl-3 text-fg-2; }
 
-/* Workers: the settlement's wooden dock. Reduced motion stops the ticker. */
-.pixel { font-family: "Pixelify Sans", "VT323", ui-monospace, monospace; }
-.wood { background: repeating-linear-gradient(0deg, #8a5a30 0 9px, #7a4e28 9px 10px, #93623a 10px 19px, #6d4523 19px 20px); border-top: 3px solid #a8774a; }
-.parchment { background: linear-gradient(#f6e7c1, #ead39f); }
-.bar { background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.18) 0 4px, transparent 4px 8px); }
+/* Workers: the status ticker under the colony. Reduced motion stops it. */
 @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-33.333%); } }
-@keyframes flick { 0%, 100% { opacity: 1; } 50% { opacity: .82; } }
-.marquee { animation: marquee 26s linear infinite; }
-.glow-green { text-shadow: 0 0 6px rgba(156,255,122,.75), 0 0 14px rgba(156,255,122,.35); animation: marquee 26s linear infinite, flick 2.4s steps(2) infinite; }
-.glow-amber { text-shadow: 0 0 6px rgba(255,196,107,.7), 0 0 14px rgba(255,196,107,.3); animation: marquee 34s linear infinite, flick 4s steps(2) infinite; }
-.glow-gold { text-shadow: 0 0 6px rgba(255,224,102,.8), 0 0 16px rgba(255,224,102,.4); animation: marquee 22s linear infinite, flick 1.2s steps(2) infinite; }
-.glow-blue { text-shadow: 0 0 6px rgba(159,198,255,.6); animation: marquee 34s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .marquee, .glow-green, .glow-amber, .glow-gold, .glow-blue { animation: none; } }
+.marquee { animation: marquee 30s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .marquee { animation: none; } }

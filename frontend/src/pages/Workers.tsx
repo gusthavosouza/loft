@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import { api, ROLES, type Agent } from "../lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "../lib/events";
 import { diffEvents, groupLook, kindOf, keyOf, pickHall, phaseOf, progress, PHASE_NAMES, type Overview, type RunningDelivery } from "../lib/workers";
-import { LH, LW, drawOverlay, makeWorld, pick, pushEvent, render, setFinished, setHall, stateLabel, step, syncAgents, taskLine, type HallView, type Worker, type World } from "../lib/settlement";
+import { geometry, makeWorld, pick, pushEvent, render, rescale, setFinished, setHall, stateLabel, step, syncAgents, taskLine, type Geo, type HallView, type Worker, type World } from "../lib/colony";
 
 const reducedQuery = () => window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -90,7 +90,7 @@ export default function WorkersPage() {
         const cur = hall && hall.dev === a.id ? hall.tickets.find((t) => t.number === hall.current) : undefined;
         return {
           id: a.id, name: a.name, kind: kindOf(a.role), roleLabel: ROLES.find((r) => r.value === a.role)?.label ?? "Agent", group: a.group?.trim() ?? "",
-          hat: look.hat, shirt: look.shirt, straw: look.straw, initials: look.initials,
+          hat: look.hat, shirt: look.shirt, initials: look.initials,
           on: demoOn && demo.on !== null ? demo.on : a.status === "running", need: needs.has(a.id), status: a.status_text, ticket: cur ? { number: cur.number, title: cur.title } : null,
         };
       }),
@@ -103,11 +103,13 @@ export default function WorkersPage() {
   const bubbleRef = useRef<HTMLDivElement>(null);
   const world = useRef<World>(null as unknown as World);
   if (!world.current) world.current = makeWorld();
-  const scale = useRef(1);
+  const geo = useRef<Geo>(null as unknown as Geo);
+  const workersRef = useRef<Worker[]>([]);
+  workersRef.current = workers;
   const prevOv = useRef<Overview | null>(null);
   const hallKey = useRef<string | null>(null);
 
-  useEffect(() => { syncAgents(world.current, workers); }, [workers]);
+  useEffect(() => { if (geo.current) syncAgents(world.current, geo.current, workers); }, [workers]);
   useEffect(() => {
     if (!ov) return;
     setFinished(world.current, ov.merged.map((m) => ({ key: keyOf(m), title: m.title, spec: m.spec })));
@@ -125,15 +127,15 @@ export default function WorkersPage() {
 
   useEffect(() => {
     const canvas = canvasRef.current!, box = boxRef.current!, ctx = canvas.getContext("2d")!;
-    const off = document.createElement("canvas");
-    off.width = LW; off.height = LH;
-    const oc = off.getContext("2d")!;
     const resize = () => {
-      const W = box.clientWidth, H = Math.round((W * LH) / LW), dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const W = box.clientWidth, H = Math.round(Math.min(560, Math.max(330, W * 0.46))), dpr = Math.min(window.devicePixelRatio || 1, 3);
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
       canvas.style.width = W + "px"; canvas.style.height = H + "px";
-      scale.current = W / LW; world.current.viewW = W;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const old = geo.current;
+      geo.current = geometry(W, H);
+      if (old) rescale(world.current, geo.current, W / old.W);
+      else syncAgents(world.current, geo.current, workersRef.current);
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -142,17 +144,13 @@ export default function WorkersPage() {
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      const w = world.current, k = scale.current;
-      step(w, dt);
-      render(oc, w);
-      ctx.imageSmoothingEnabled = false;
-      ctx.clearRect(0, 0, LW * k, LH * k);
-      ctx.drawImage(off, 0, 0, LW * k, LH * k);
-      drawOverlay(ctx, w, k);
+      const w = world.current, g = geo.current;
+      step(w, g, dt);
+      render(ctx, g, w);
       const sa = w.agents.find((a) => a.id === w.selected);
       if (bubbleRef.current) {
         bubbleRef.current.style.display = sa ? "block" : "none";
-        if (sa) bubbleRef.current.style.transform = `translate(${Math.min(Math.max(sa.x * k, 90), w.viewW - 90)}px, ${(sa.y - (sa.carry ? 22 : sa.need ? 34 : 16)) * k}px) translate(-50%, -100%)`;
+        if (sa) bubbleRef.current.style.transform = `translate(${Math.min(Math.max(sa.x, 110), g.W - 110)}px, ${Math.max(8, (sa.labelTop ?? sa.y - 46 * g.s) - 18)}px) translate(-50%, -100%)`;
       }
       uiT -= dt;
       if (uiT <= 0) {
@@ -160,7 +158,7 @@ export default function WorkersPage() {
         const ag = w.agents;
         const needy = ag.find((a) => a.need);
         setUi({
-          building: ag.filter((a) => ["DISPATCHING", "GATHERING", "HAULING", "PLANNING"].includes(a.state)).length,
+          building: ag.filter((a) => ["DISPATCHING", "WORKING", "HAULING", "PLANNING"].includes(a.state)).length,
           inspecting: ag.filter((a) => a.state === "INSPECTING" || a.state === "STANDBY").length,
           resting: ag.filter((a) => a.state === "RESTING" || a.state === "RETURNING_TO_CAMP").length,
           need: needy ? needy.name : null,
@@ -174,94 +172,88 @@ export default function WorkersPage() {
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
 
-  const toWorld = (e: React.MouseEvent) => {
-    const r = canvasRef.current!.getBoundingClientRect(), k = scale.current;
-    return [(e.clientX - r.left) / k, (e.clientY - r.top) / k] as const;
+  const local = (e: React.MouseEvent) => {
+    const r = canvasRef.current!.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top] as const;
   };
   const onClick = (e: React.MouseEvent) => {
-    const w = world.current, id = pick(w, ...toWorld(e));
+    const w = world.current, id = pick(w, geo.current, ...local(e));
     w.selected = id === w.selected ? null : id;
   };
   const onMove = (e: React.MouseEvent) => {
-    const w = world.current;
-    w.hover = pick(w, ...toWorld(e));
+    const w = world.current, [x, y] = local(e);
+    w.hover = pick(w, geo.current, x, y);
+    w.parTarget = x / geo.current.W;
     canvasRef.current!.style.cursor = w.hover !== null ? "pointer" : "default";
   };
+  const onLeave = () => { world.current.hover = null; world.current.parTarget = 0.5; };
 
   /* ---- the dock ---- */
   const pct = view ? Math.round(view.pct) : 0;
   const ph = phaseOf(view?.pct ?? 0);
-  let status: string, tone: string;
-  if (ui.need) { status = `[⚑ WAITING FOR YOU] ${ui.need.toUpperCase()} NEEDS AN ANSWER`; tone = "text-[#ffc46b] glow-amber"; }
-  else if (ui.celebrate) { status = `[★ RELEASING] ${(view?.title ?? "SPEC").toUpperCase()} COMPLETE • SPEC MERGED • RAISING THE BANNER`; tone = "text-[#ffe066] glow-gold"; }
-  else if (ui.building + ui.inspecting > 0) { status = `[🔨 WORKING] ${ui.building} BUILDING • ${ui.inspecting} INSPECTING • ${ui.resting} RESTING`; tone = "text-[#9cff7a] glow-green"; }
-  else { status = "[☕ RESTING] EVERYONE IS AT THE CAMP"; tone = "text-[#9fc6ff] glow-blue"; }
+  let status: string, tone: string, glow: string;
+  if (ui.need) { status = `⚑ WAITING FOR YOU — ${ui.need.toUpperCase()} NEEDS AN ANSWER`; tone = "text-[#ffb547]"; glow = "0 0 14px rgba(255,181,71,.55)"; }
+  else if (ui.celebrate) { status = `★ RELEASING — ${(view?.title ?? "SPEC").toUpperCase()} COMPLETE · SPEC MERGED`; tone = "text-[#ffe066]"; glow = "0 0 16px rgba(255,224,102,.6)"; }
+  else if (ui.building + ui.inspecting > 0) { status = `● WORKING — ${ui.building} AGENTS BUILDING${view ? ` ${view.title.toUpperCase()}` : ""} · ${ui.inspecting} INSPECTING · ${ui.resting} RESTING`; tone = "text-[#5ef08a]"; glow = "0 0 14px rgba(94,240,138,.55)"; }
+  else { status = `◑ RESTING — ${ui.resting} AGENTS AT CAMP${view ? "" : " · NO DELIVERY RUNNING"}`; tone = "text-[#9fc6ff]"; glow = "0 0 12px rgba(159,198,255,.45)"; }
   const btn = (on: boolean, label: string, onClick: () => void) => (
-    <button type="button" onClick={onClick} aria-pressed={on} className={`px-3 py-1 text-[15px] leading-none tracking-wide border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ffe58a] ${on ? "bg-[#ffd36b] border-[#7a3d18] text-[#3a2414] shadow-[inset_0_-3px_0_#d9a43c]" : "bg-[#c99a62] border-[#5a3519] text-[#3a2414] hover:bg-[#dcae74] shadow-[inset_0_-3px_0_#a47444]"}`}>
-      {label}
-    </button>
+    <button type="button" onClick={onClick} aria-pressed={on} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd27a] ${on ? "bg-[#ffd27a] text-[#1d1424]" : "bg-white/10 text-[#efe6d8] hover:bg-white/20"}`}>{label}</button>
   );
 
   return (
-    <div className="h-full overflow-y-auto bg-[#1d130c] px-3 py-4 sm:px-4">
-      <div className="mx-auto max-w-[1280px]">
-        <div className="border-4 border-[#3a2414] bg-[#3a2414] p-1 shadow-[0_18px_50px_-18px_rgba(0,0,0,.8)]">
-          <div ref={boxRef} className="relative w-full">
-            <canvas ref={canvasRef} onClick={onClick} onMouseMove={onMove} onMouseLeave={() => { world.current.hover = null; }} className="block" style={{ imageRendering: "pixelated" }}
-              role="img" aria-label="Pixel settlement: agents gather from the backlog, haul materials and build the running spec's hall; idle agents rest at the homestead" />
-            <div ref={bubbleRef} className="pixel pointer-events-auto absolute left-0 top-0 hidden max-w-[220px] border-[3px] border-[#2a1a10] bg-[#f3e2b8] px-2.5 py-1.5 text-[13px] leading-snug text-[#3a2414]">
-              {ui.sel && (
-                <>
-                  <div className="text-[#7a3d18]">{ui.sel.name} · {ui.sel.role}</div>
-                  <div>{ui.sel.task}</div>
-                  <div className="text-[12px] uppercase text-[#7a3d18]">{ui.sel.state}{ui.sel.group ? ` · ${ui.sel.group}` : ""}</div>
-                  <Link to={`/agents/${ui.sel.id}`} className="mt-1 inline-block border-2 border-[#5a3519] bg-[#ffd36b] px-2 py-0.5 text-[13px] text-[#3a2414] hover:bg-[#ffe58a]">Open chat →</Link>
-                </>
-              )}
+    <div className="h-full overflow-y-auto bg-[#0f0d1d] px-3 py-4 sm:px-4">
+      <div className="mx-auto max-w-[1280px] overflow-hidden rounded-2xl border border-white/10 bg-[#151a36] shadow-[0_20px_60px_-20px_rgba(0,0,0,.7)]">
+        <div ref={boxRef} className="relative w-full">
+          <canvas ref={canvasRef} onClick={onClick} onMouseMove={onMove} onMouseLeave={onLeave} className="block"
+            role="img" aria-label="Animated colony: agents dig at the quarry, haul materials to build the running spec's hall, and rest at camp" />
+          <div ref={bubbleRef} className="pointer-events-auto absolute left-0 top-0 hidden w-[220px] rounded-xl border-[1.5px] border-[#1a1424] bg-[#fbf6ec] px-3 py-2 text-[12px] leading-snug text-[#231a2b]">
+            {ui.sel && (
+              <>
+                <div className="font-bold">{ui.sel.name} · {ui.sel.role}</div>
+                <div className="text-[10px] font-bold uppercase tracking-wide text-[#18794e]">{ui.sel.state}{ui.sel.group ? ` · ${ui.sel.group}` : ""}</div>
+                <div className="mt-0.5 font-mono">{ui.sel.task}</div>
+                <Link to={`/agents/${ui.sel.id}`} className="mt-1.5 inline-block rounded-full bg-[#231a2b] px-2.5 py-0.5 text-[11px] font-semibold text-[#fbf6ec] hover:bg-[#3a2c4a]">Open chat →</Link>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="space-y-2.5 border-t border-white/10 bg-[rgba(18,14,32,0.85)] p-3 backdrop-blur-md">
+          <div>
+            {view ? (
+              <>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-[13px]">
+                  <span className="font-semibold text-[#f6ead7]">🏗️ {view.title}: <span className="font-mono tabular-nums">{view.done} / {view.total} tickets</span></span>
+                  <span className="font-mono text-[12px] text-[#b9adc9]">phase {ph}/5 · {PHASE_NAMES[ph]} · spec #{view.spec}{view.pr ? ` · PR #${view.pr}` : ""}</span>
+                </div>
+                <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-[#ffb547] to-[#ffe066] transition-[width] duration-500" style={{ width: `${pct}%` }} /></div>
+              </>
+            ) : (
+              <div className="text-[13px] font-semibold text-[#f6ead7]">🏗️ Waiting for a spec <span className="font-normal text-[#b9adc9]">· no Delivery is running</span></div>
+            )}
+          </div>
+          <div className="overflow-hidden whitespace-nowrap border-y border-white/10 py-2">
+            <div className={`marquee inline-flex gap-16 font-mono text-[12.5px] font-semibold tracking-[0.08em] ${tone}`} style={{ textShadow: glow }}>
+              <span>{status}</span><span aria-hidden="true">{status}</span><span aria-hidden="true">{status}</span>
             </div>
           </div>
-          <div className="wood mt-1 space-y-2 p-2.5">
-            <div className="parchment pixel border-2 border-[#5a3519] px-3 py-1.5 text-[#3a2414]">
-              {view ? (
-                <>
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-[15px]">
-                    <span>🏗️ {view.title}: <b>{view.done}</b> / {view.total} tickets</span>
-                    <span className="text-[13px] text-[#7a3d18]">Phase {ph}/5 · {PHASE_NAMES[ph]} · spec #{view.spec}{view.pr ? ` · PR #${view.pr}` : ""}</span>
-                  </div>
-                  <div className="mt-1 h-3.5 border-2 border-[#3a2414] bg-[#5a3519]"><div className="bar h-full bg-[#7fd05a] transition-[width] duration-500" style={{ width: `${pct}%` }} /></div>
-                </>
-              ) : (
-                <div className="text-[15px]">🏗️ Waiting for a spec: no Delivery is running.</div>
-              )}
-            </div>
-            <div className="border-2 border-[#1c0f07] bg-[#1f130b] px-3 py-2 shadow-[inset_0_2px_6px_rgba(0,0,0,.7)]">
-              <div className="overflow-hidden whitespace-nowrap">
-                <div className={`marquee pixel inline-flex gap-20 text-[17px] tracking-wider ${tone}`}>
-                  <span>{status}</span><span aria-hidden="true">{status}</span><span aria-hidden="true">{status}</span>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              {demoOn && (
-                <>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="pixel mr-1 text-[14px] text-[#ffe9b8]">SHIFT</span>
-                    {btn(demo.on === true, "Deploy", () => setDemo((d) => ({ ...d, on: true })))}
-                    {btn(demo.on === false, "Recall", () => setDemo((d) => ({ ...d, on: false })))}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="pixel mr-1 text-[14px] text-[#ffe9b8]">SPEED</span>
-                    {[[1, "1x"], [2, "2x"], [6, "Turbo"]].map(([v, l]) => <span key={l}>{btn(demo.speed === v, String(l), () => setDemo((d) => ({ ...d, speed: Number(v) })))}</span>)}
-                  </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {demoOn && (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {btn(demo.on === false, "Call All to Camp", () => setDemo((d) => ({ ...d, on: false })))}
+                  {btn(demo.on === true, "Deploy All to Work", () => setDemo((d) => ({ ...d, on: true })))}
+                  {btn(demo.on === null, "Real status", () => setDemo((d) => ({ ...d, on: null })))}
                   {btn(false, "Simulate PR Merge", () => setDemo((d) => ({ ...d, ov: simulateMerge(d.ov) })))}
-                </>
-              )}
-              <div className="parchment pixel ml-auto flex flex-wrap gap-x-4 border-2 border-[#5a3519] px-3 py-1 text-[15px] tabular-nums text-[#3a2414]">
-                <span>Building: <b className="text-[#2f7a35]">{ui.building}</b></span>
-                <span>Inspecting: <b className="text-[#3d6fb3]">{ui.inspecting}</b></span>
-                <span>Resting: <b className="text-[#a3412b]">{ui.resting}</b></span>
-                <span>Finished: <b>{ov?.merged.length ?? 0}</b></span>
-              </div>
+                </div>
+                <label htmlFor="workers-speed" className="flex items-center gap-2 text-[12px] text-[#d9cfe6]">
+                  Speed
+                  <input id="workers-speed" type="range" min="0.25" max="4" step="0.05" value={demo.speed} onChange={(e) => setDemo((d) => ({ ...d, speed: parseFloat(e.target.value) }))} className="w-28 accent-[#ffd27a]" />
+                  <span className="w-10 font-mono tabular-nums text-[#f6ead7]">×{demo.speed.toFixed(2)}</span>
+                </label>
+              </>
+            )}
+            <div className="ml-auto font-mono text-[12.5px] tabular-nums text-[#f6ead7]">
+              [ 🔨 Building: <b className="text-[#5ef08a]">{ui.building}</b> | 🔍 Inspecting: <b className="text-[#9fc6ff]">{ui.inspecting}</b> | ⛺ Resting: <b className="text-[#ffb547]">{ui.resting}</b> | 🏠 Finished: <b>{ov?.merged.length ?? 0}</b> ]
             </div>
           </div>
         </div>
