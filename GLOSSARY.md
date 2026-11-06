@@ -13,7 +13,7 @@ A label that keeps agents together, such as Dineout or Loft. It owns no projects
 _Avoid_: Workspace, organisation
 
 **Workers**:
-The page (`/workers`) that shows each agent as a small worker: digging in a tunnel while its agent runs, resting by a campfire otherwise. Its hat color and T-shirt initials come from the agent's group.
+The page (`/workers`): an animated colony with one worker per agent. A running Dev quarries and hauls materials to the building site, a running QA, Security or Code reviewer inspects there, a running Lead walks the site, and an idle agent rests at the camp. The hall on the site is the spec of the running Delivery, rising as its tickets close; merged specs stand on the skyline. A worker's hat color comes from its agent's group, and its initials show in its name tag.
 
 **Team**:
 The agents of one group. A team has at most one Lead.

@@ -112,7 +112,7 @@ export default function WorkersPage() {
   useEffect(() => { if (geo.current) syncAgents(world.current, geo.current, workers); }, [workers]);
   useEffect(() => {
     if (!ov) return;
-    setFinished(world.current, ov.merged.map((m) => ({ key: keyOf(m), title: m.title, spec: m.spec })));
+    setFinished(world.current, ov.merged.slice(0, 5).map((m) => ({ key: keyOf(m), title: m.title, spec: m.spec })));
     for (const e of diffEvents(prevOv.current, ov)) if (e.key === hallKey.current) pushEvent(world.current, e);
     prevOv.current = ov;
     hallKey.current = view?.key ?? null;
@@ -253,7 +253,7 @@ export default function WorkersPage() {
               </>
             )}
             <div className="ml-auto font-mono text-[12.5px] tabular-nums text-[#f6ead7]">
-              [ 🔨 Building: <b className="text-[#5ef08a]">{ui.building}</b> | 🔍 Inspecting: <b className="text-[#9fc6ff]">{ui.inspecting}</b> | ⛺ Resting: <b className="text-[#ffb547]">{ui.resting}</b> | 🏠 Finished: <b>{ov?.merged.length ?? 0}</b> ]
+              [ 🔨 Building: <b className="text-[#5ef08a]">{ui.building}</b> | 🔍 Inspecting: <b className="text-[#9fc6ff]">{ui.inspecting}</b> | ⛺ Resting: <b className="text-[#ffb547]">{ui.resting}</b> | 🏠 Finished: <b>{Math.min(5, ov?.merged.length ?? 0)}</b> ]
             </div>
           </div>
         </div>

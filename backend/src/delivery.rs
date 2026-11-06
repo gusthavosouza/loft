@@ -904,7 +904,7 @@ pub async fn issue_delivery(State(state): State<AppState>, Path(id): Path<String
 }
 
 /// What the Workers page shows of the Deliveries: the ones building now (newest first), each with its tickets,
-/// and the last five merged specs. Pure, so it can be tested: `title` names a spec, `merged_prs` are the
+/// and the merged specs, newest first by when their Delivery was made (a window of 50, so a spec that just merged is still found; the page shows the newest five). Pure, so it can be tested: `title` names a spec, `merged_prs` are the
 /// `(repo, number)` of spec PRs GitHub merged (a Delivery "settled" is merged only when its PR is one of them).
 fn workers_overview(ds: &[Delivery], title: impl Fn(&Delivery) -> String, merged_prs: &std::collections::HashSet<(String, i64)>) -> Value {
     let mut ds: Vec<&Delivery> = ds.iter().collect();
@@ -922,7 +922,7 @@ fn workers_overview(ds: &[Delivery], title: impl Fn(&Delivery) -> String, merged
     let merged: Vec<Value> = ds
         .iter()
         .filter(|d| d.state == "merged" || (d.state == "settled" && d.pr.is_some_and(|pr| merged_prs.contains(&(d.repo.clone(), pr)))))
-        .take(5)
+        .take(50)
         .map(|d| json!({ "repo": d.repo, "spec": d.spec, "title": title(d) }))
         .collect();
     json!({ "running": running, "merged": merged })
@@ -1290,7 +1290,7 @@ mod tests {
     }
 
     #[test]
-    fn workers_overview_lists_running_deliveries_newest_first_and_the_last_five_merged() {
+    fn workers_overview_lists_running_deliveries_newest_first_and_the_merged_ones() {
         let d = |spec: i64, state: &str, pr: Option<i64>, at: &str| -> Delivery {
             serde_json::from_value(serde_json::json!({ "repo": "o/r", "spec": spec, "state": state, "pr": pr, "created_at": at, "tickets": [{ "number": spec + 1, "state": "review" }] })).unwrap()
         };
@@ -1305,7 +1305,7 @@ mod tests {
         assert_eq!(running, [2, 1], "planned ones aren't building");
         assert_eq!(v["running"][0]["tickets"][0]["state"], "review");
         let merged: Vec<_> = v["merged"].as_array().unwrap().iter().map(|r| r["spec"].as_i64().unwrap()).collect();
-        assert_eq!(merged, [16, 15, 14, 13, 11], "the last five; #12 settled without a merge");
+        assert_eq!(merged, [16, 15, 14, 13, 11, 10], "newest first; #12 settled without a merge");
         assert_eq!(v["merged"][0]["title"], "Spec 16");
     }
 }
