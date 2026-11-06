@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router";
-import { Bot, GitBranch, ListTodo, Settings as SettingsIcon, ShieldAlert, Smartphone } from "lucide-react";
+import { Bot, GitBranch, HardHat, ListTodo, Settings as SettingsIcon, ShieldAlert, Smartphone } from "lucide-react";
 import { api, type Agent, type Settings } from "./lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "./lib/events";
 import { cx } from "./lib/format";
@@ -10,6 +10,7 @@ import AgentsPage from "./pages/agents/AgentsPage";
 import SettingsPage, { SETTINGS_SAVED } from "./pages/Settings";
 import SimulatorPage from "./pages/Simulator";
 import TasksPage from "./pages/Tasks";
+import WorkersPage from "./pages/Workers";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { UpdateStatus } from "./components/UpdateStatus";
 import { UsageMeter } from "./components/UsageMeter";
@@ -154,6 +155,9 @@ export default function App() {
             <NavLink to={issuesLink(location.pathname)} className={tab} aria-label="Issues">
               <ListTodo className="size-3.5" /> <span className="max-md:hidden">Issues</span>
             </NavLink>
+            <NavLink to="/workers" className={tab} aria-label="Workers">
+              <HardHat className="size-3.5" /> <span className="max-md:hidden">Workers</span>
+            </NavLink>
             {showSimulator && (
               <NavLink to="/simulator" className={tab} aria-label="Simulator">
                 <Smartphone className="size-3.5" /> <span className="max-md:hidden">Simulator</span>
@@ -194,6 +198,7 @@ export default function App() {
           <Route path="/issues/:project/:number" element={<OldIssue />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/tasks/:id" element={<TasksPage />} />
+          <Route path="/workers" element={<WorkersPage />} />
           <Route path="/simulator" element={<SimulatorPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

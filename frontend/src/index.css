@@ -163,3 +163,18 @@ body::after {
 .prose-chat table { @apply my-2 w-full text-[13px]; }
 .prose-chat th, .prose-chat td { @apply border-b border-line px-2 py-1 text-left; }
 .prose-chat blockquote { @apply border-l-2 border-line-strong pl-3 text-fg-2; }
+
+/* Workers: a worker's swing, bob and the campfire's flicker. Reduced motion keeps the poses and drops the movement. */
+@keyframes worker-swing { 0%, 100% { transform: rotate(-28deg); } 50% { transform: rotate(22deg); } }
+@keyframes worker-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes worker-haul { 0% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(-10px) translateY(-6px); opacity: 0; } }
+@keyframes fire-flicker { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12, 0.92); } }
+.worker-pick { transform-origin: 78px 60px; animation: worker-swing 0.9s ease-in-out infinite; }
+.worker-dig .worker-body, .worker-rest .worker-body { animation: worker-bob 1.8s ease-in-out infinite; }
+.worker-dig .worker-body { animation-duration: 0.9s; }
+.worker-gold { animation: worker-haul 1.8s ease-out infinite; }
+.fire { transform-box: fill-box; transform-origin: 50% 100%; animation: fire-flicker 0.7s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .worker-pick, .worker-body, .worker-gold, .fire { animation: none !important; }
+  .worker-pick { transform: rotate(-12deg); }
+}

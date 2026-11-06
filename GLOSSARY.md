@@ -12,6 +12,9 @@ _Avoid_: Bot, assistant
 A label that keeps agents together, such as Dineout or Loft. It owns no projects, folder or main project, and is never a repo or a place to publish: projects belong to each agent.
 _Avoid_: Workspace, organisation
 
+**Workers**:
+The page (`/workers`) that shows each agent as a small worker: digging in a tunnel while its agent runs, resting by a campfire otherwise. Its hat color and T-shirt initials come from the agent's group.
+
 **Team**:
 The agents of one group. A team has at most one Lead.
 _Avoid_: Squad, crew
