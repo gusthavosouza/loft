@@ -6,6 +6,9 @@ import { useWakeLock } from "../lib/wakeLock";
 import { caption, workerState, diffEvents, isReleasing, needyAgents, groupLook, kindOf, keyOf, pickHall, phaseOf, progress, PHASE_NAMES, type Overview, type RunningDelivery } from "../lib/workers";
 import { geometry, makeWorld, pick, pushEvent, render, rescale, setFinished, setHall, stateLabel, step, syncAgents, taskLine, type Geo, type HallView, type Worker, type World } from "../lib/colony";
 
+/** The iOS app shows this page in a web view and registers `openAgent`: a tap on a worker then opens the chat natively. */
+const nativeBridge = () => (window as unknown as { webkit?: { messageHandlers?: { openAgent?: { postMessage(id: string): void } } } }).webkit?.messageHandlers?.openAgent;
+
 const reducedQuery = () => window.matchMedia("(prefers-reduced-motion: reduce)");
 
 /** Demo data for ?demo=1: a Delivery of ten tickets, three closed and one in review, and two merged specs. */
@@ -228,7 +231,7 @@ export default function WorkersPage() {
     <div className={display ? "h-full bg-[#0f0d1d]" : "h-full overflow-y-auto bg-[#0f0d1d] px-3 py-4 sm:px-4"}>
       <div className={display ? "flex h-full flex-col overflow-hidden bg-[#151a36]" : "mx-auto max-w-[1280px] overflow-hidden rounded-2xl border border-white/10 bg-[#151a36] shadow-[0_20px_60px_-20px_rgba(0,0,0,.7)]"}>
         <div ref={boxRef} className={display ? "relative min-h-0 w-full flex-1" : "relative w-full"}>
-          {display && <Link to="/workers" aria-label="Leave display mode" title="Leave display mode" className="absolute right-2 top-2 z-10 rounded-full bg-black/30 px-2 py-0.5 text-[13px] text-white/50 hover:text-white">×</Link>}
+          {display && !nativeBridge() && <Link to="/workers" aria-label="Leave display mode" title="Leave display mode" className="absolute right-2 top-2 z-10 rounded-full bg-black/30 px-2 py-0.5 text-[13px] text-white/50 hover:text-white">×</Link>}
           <canvas ref={canvasRef} onClick={onClick} onMouseMove={onMove} onMouseLeave={onLeave} className="block"
             role="img" aria-label="Animated colony: agents dig at the quarry, haul materials to build the running spec's hall, and rest at camp" />
           <div ref={bubbleRef} className="pointer-events-auto absolute left-0 top-0 hidden w-[220px] rounded-xl border-[1.5px] border-[#1a1424] bg-[#fbf6ec] px-3 py-2 text-[12px] leading-snug text-[#231a2b]">
@@ -237,7 +240,7 @@ export default function WorkersPage() {
                 <div className="font-bold">{ui.sel.name} · {ui.sel.role}</div>
                 <div className="text-[10px] font-bold uppercase tracking-wide text-[#18794e]">{ui.sel.state}{ui.sel.group ? ` · ${ui.sel.group}` : ""}</div>
                 <div className="mt-0.5 font-mono">{ui.sel.task}</div>
-                <Link to={`/agents/${ui.sel.id}`} className="mt-1.5 inline-block rounded-full bg-[#231a2b] px-2.5 py-0.5 text-[11px] font-semibold text-[#fbf6ec] hover:bg-[#3a2c4a]">Open chat →</Link>
+                <Link to={`/agents/${ui.sel.id}`} onClick={(e) => { const b = nativeBridge(); if (b && ui.sel) { e.preventDefault(); b.postMessage(ui.sel.id); } }} className="mt-1.5 inline-block rounded-full bg-[#231a2b] px-2.5 py-0.5 text-[11px] font-semibold text-[#fbf6ec] hover:bg-[#3a2c4a]">Open chat →</Link>
               </>
             )}
           </div>

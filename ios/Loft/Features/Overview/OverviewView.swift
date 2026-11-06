@@ -54,6 +54,13 @@ struct OverviewView: View {
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("settingsButton")
             }
+            ToolbarItem(placement: .topBarLeading) {
+                Button { router.workers = true } label: {
+                    Image(systemName: "figure.walk.motion")
+                }
+                .accessibilityLabel("Workers")
+                .accessibilityIdentifier("workersButton")
+            }
         }
         .createMenu()
     }

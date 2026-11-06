@@ -88,6 +88,7 @@ final class Router {
     var tasksPath = NavigationPath()
     var chatPath = NavigationPath()
     var composer: Composer?
+    var workers = false
 
     enum Composer: Identifiable {
         case newTask(agentId: String?, parentId: String?)
@@ -185,6 +186,7 @@ struct RootView: View {
                 }
                 .readableBarEdges()
                 .voicePresenter()
+                .fullScreenCover(isPresented: $router.workers) { WorkersView() }
                 .sheet(item: $router.composer) { c in
                     switch c {
                     case .newTask(let agentId, let parentId):

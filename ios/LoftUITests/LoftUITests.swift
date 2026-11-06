@@ -77,6 +77,17 @@ final class LoftUITests: XCTestCase {
     /// One launch: live state, the Needs you card, the Mac's temperature, plan usage, approving a permission and
     /// activity; then tasks (subtasks nest, filters narrow, a new task shows up); then the agent list (context
     /// warning), an agent's detail and a direct chat with another agent.
+    /// Workers opens full screen from the Overview and closes again.
+    func testWorkersOpensAndCloses() {
+        let app = launch()
+        let open = app.buttons["workersButton"]
+        XCTAssertTrue(open.appears(timeout: 5))
+        open.tap()
+        XCTAssertTrue(app.webViews.firstMatch.appears(timeout: 5))
+        app.buttons["closeWorkers"].tap()
+        XCTAssertTrue(open.appears(timeout: 5))
+    }
+
     func testOverviewTasksAndAgents() {
         let app = launch()
         XCTAssertTrue(app.staticTexts["Connected"].appears(timeout: 5))
