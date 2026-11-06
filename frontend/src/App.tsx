@@ -5,6 +5,7 @@ import { api, type Agent, type Settings } from "./lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "./lib/events";
 import { cx } from "./lib/format";
 import { oldTasksTarget } from "./lib/oldTasks";
+import { caption, CAPTION_DOT, isReleasing } from "./lib/workers";
 import { mergeLoaded, unreadBadge, unreadCount, unreadTitle } from "./lib/unread";
 import ReposPage from "./pages/Repos";
 import AgentsPage from "./pages/agents/AgentsPage";
@@ -89,6 +90,43 @@ function useUnreadCount(live: boolean) {
   return count;
 }
 
+/** The Workers tab with its live caption (same function as the page's dock), kept fresh from any page. On a phone only the dot shows; the text stays in the tip and the label. */
+function WorkersTab({ live, tab }: { live: boolean; tab: (s: { isActive: boolean }) => string }) {
+  const [running, setRunning] = useState<Set<string>>(new Set());
+  const [needy, setNeedy] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+  const readNeeds = useCallback(() => { api.needsYou().then((r) => setNeedy(r.items.length > 0)).catch(() => {}); }, []);
+  const readReleasing = useCallback(() => { api.workersOverview().then((o) => setReleasing(isReleasing(o, false))).catch(() => {}); }, []);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    api.agents().then((as) => setRunning(new Set(as.filter((a) => a.status === "running").map((a) => a.id)))).catch(() => {});
+    readNeeds();
+    readReleasing();
+  }, [live, readNeeds, readReleasing]);
+  useEffect(() => {
+    const t = setInterval(() => { readNeeds(); readReleasing(); }, 15000);
+    return () => { clearInterval(t); clearTimeout(timer.current); };
+  }, [readNeeds, readReleasing]);
+  useServerEvents(
+    useCallback((e: ServerEvent) => {
+      if (e.type === "agent_updated") setRunning((r) => { const n = new Set(r); if (e.agent.status === "running") n.add(e.agent.id); else n.delete(e.agent.id); return n; });
+      else if (e.type === "agent_deleted") setRunning((r) => { const n = new Set(r); n.delete(e.agent_id); return n; });
+      if (e.type === "agent_updated" || e.type === "message" || e.type === "permission" || e.type === "pull_request" || e.type === "task") {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => { readNeeds(); readReleasing(); }, 700);
+      }
+    }, [readNeeds, readReleasing]),
+  );
+  const cap = caption({ needsYou: needy, releasing, working: running.size > 0 });
+  return (
+    <NavLink to="/workers" className={tab} aria-label={`Workers: ${cap}`} title={`Workers: ${cap}`}>
+      <HardHat className="size-3.5" /> <span className="max-md:hidden">Workers</span>
+      <span className="size-2 shrink-0 rounded-full" style={{ background: CAPTION_DOT[cap], boxShadow: `0 0 6px ${CAPTION_DOT[cap]}` }} aria-hidden />
+      <span className="whitespace-nowrap text-[11px] opacity-80 max-md:hidden">{cap}</span>
+    </NavLink>
+  );
+}
+
 /** The Agents tab's Unread reply dot. Its own component so agent events re-render only the dot, not App and the page under it. */
 function UnreadDot({ live }: { live: boolean }) {
   const unread = useUnreadCount(live);
@@ -161,9 +199,7 @@ export default function App() {
             <NavLink to={issuesLink(location.pathname)} className={tab} aria-label="Issues">
               <ListTodo className="size-3.5" /> <span className="max-md:hidden">Issues</span>
             </NavLink>
-            <NavLink to="/workers" className={tab} aria-label="Workers">
-              <HardHat className="size-3.5" /> <span className="max-md:hidden">Workers</span>
-            </NavLink>
+            <WorkersTab live={live} tab={tab} />
             {showSimulator && (
               <NavLink to="/simulator" className={tab} aria-label="Simulator">
                 <Smartphone className="size-3.5" /> <span className="max-md:hidden">Simulator</span>

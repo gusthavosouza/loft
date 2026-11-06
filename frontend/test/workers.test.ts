@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { caption, isReleasing, needyAgents, workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
+import { caption, CAPTION_DOT, isReleasing, needyAgents, workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
 
 test("a worker works while its agent runs and rests otherwise", () => {
   assert.equal(workerState({ status: "running" }), "working");
@@ -84,4 +84,9 @@ test("Releasing follows a spec PR found ready and not merged, or a merge being c
   assert.equal(isReleasing(ov([]), false), false);
   assert.equal(isReleasing(ov([{ repo: "o/r", spec: 9 }]), false), true);
   assert.equal(isReleasing(ov(), true), true);
+});
+
+test("every caption has its own dot colour for the navigation button", () => {
+  const all = (["Waiting for you", "Releasing", "Working", "Resting"] as const).map((c) => CAPTION_DOT[c]);
+  assert.equal(new Set(all).size, 4);
 });

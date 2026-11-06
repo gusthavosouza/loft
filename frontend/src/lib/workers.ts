@@ -109,6 +109,9 @@ export function caption(s: { needsYou: boolean; releasing: boolean; working: boo
   return s.needsYou ? "Waiting for you" : s.releasing ? "Releasing" : s.working ? "Working" : "Resting";
 }
 
+/** The dot beside the caption on the navigation button. */
+export const CAPTION_DOT: Record<Caption, string> = { "Waiting for you": "#ffb547", Releasing: "#ffe066", Working: "#5ef08a", Resting: "#9fc6ff" };
+
 /** The ids of the agents with an open Needs you item: their workers hold the sign. Items about no agent name nobody. */
 export function needyAgents(items: { agent: { id: string } | null }[]): Set<string> {
   return new Set(items.flatMap((i) => (i.agent ? [i.agent.id] : [])));
