@@ -906,7 +906,7 @@ pub async fn issue_delivery(State(state): State<AppState>, Path(id): Path<String
 /// What the Workers page shows of the Deliveries: the ones building now (newest first), each with its tickets,
 /// and the merged specs, newest first by when their Delivery was made (a window of 50, so a spec that just merged is still found; the page shows the newest five). Pure, so it can be tested: `title` names a spec, `merged_prs` are the
 /// `(repo, number)` of spec PRs GitHub merged (a Delivery "settled" is merged only when its PR is one of them).
-fn workers_overview(ds: &[Delivery], title: impl Fn(&Delivery) -> String, merged_prs: &std::collections::HashSet<(String, i64)>) -> Value {
+fn workers_overview(ds: &[Delivery], title: impl Fn(&Delivery) -> String, merged_prs: &std::collections::HashSet<(String, i64)>, open_prs: &std::collections::HashSet<(String, i64)>) -> Value {
     let mut ds: Vec<&Delivery> = ds.iter().collect();
     ds.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     let running: Vec<Value> = ds
@@ -925,22 +925,30 @@ fn workers_overview(ds: &[Delivery], title: impl Fn(&Delivery) -> String, merged
         .take(50)
         .map(|d| json!({ "repo": d.repo, "spec": d.spec, "title": title(d) }))
         .collect();
-    json!({ "running": running, "merged": merged })
+    // Releasing: a spec PR found ready (not a draft) and still open, or a plan kept in Loft that waits for Merge.
+    let releasing: Vec<Value> = ds
+        .iter()
+        .filter(|d| d.state == "ready" || (d.state == "settled" && d.pr.is_some_and(|pr| open_prs.contains(&(d.repo.clone(), pr)))))
+        .map(|d| json!({ "repo": d.repo, "spec": d.spec }))
+        .collect();
+    json!({ "running": running, "merged": merged, "releasing": releasing })
 }
 
 /// `GET /api/deliveries/workers`: the Deliveries for the Workers page, read-only.
 pub async fn workers_route(State(state): State<AppState>) -> ApiResult<Value> {
     let mut ds = vec![];
-    for s in ["running", "final_review", "final_fixes", "merged", "settled"] {
+    for s in ["running", "final_review", "final_fixes", "ready", "merged", "settled"] {
         ds.extend(state.db.deliveries_in_state(s)?);
     }
     let tasks = state.db.list_tasks()?;
-    let merged_prs = state.db.list_pull_requests(None)?.into_iter().filter(|p| p.state == "merged").map(|p| (p.slug, p.number)).collect();
+    let prs = state.db.list_pull_requests(None)?;
+    let merged_prs = prs.iter().filter(|p| p.state == "merged").map(|p| (p.slug.clone(), p.number)).collect();
+    let open_prs = prs.iter().filter(|p| p.state == "open").map(|p| (p.slug.clone(), p.number)).collect();
     let title = |d: &Delivery| {
         let named = if d.local { d.title.clone() } else { tasks.iter().find(|t| t.github.as_ref().is_some_and(|g| g.repo == d.repo && g.number == d.spec)).map(|t| t.title.clone()).unwrap_or_default() };
         if named.is_empty() { format!("Spec #{}", d.spec) } else { named }
     };
-    Ok(Json(workers_overview(&ds, title, &merged_prs)))
+    Ok(Json(workers_overview(&ds, title, &merged_prs, &open_prs)))
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -1297,15 +1305,18 @@ mod tests {
         let ds = vec![
             d(1, "running", None, "2026-01-01"), d(2, "running", None, "2026-02-01"), d(3, "planned", None, "2026-03-01"),
             d(10, "merged", None, "2026-01-10"), d(11, "settled", Some(111), "2026-01-11"), d(12, "settled", Some(112), "2026-01-12"),
-            d(13, "merged", None, "2026-01-13"), d(14, "merged", None, "2026-01-14"), d(15, "merged", None, "2026-01-15"), d(16, "merged", None, "2026-01-16"),
+            d(17, "ready", None, "2026-01-17"), d(18, "settled", Some(118), "2026-01-18"), d(13, "merged", None, "2026-01-13"), d(14, "merged", None, "2026-01-14"), d(15, "merged", None, "2026-01-15"), d(16, "merged", None, "2026-01-16"),
         ];
         let merged_prs = [("o/r".to_string(), 111)].into_iter().collect();
-        let v = workers_overview(&ds, |d| format!("Spec {}", d.spec), &merged_prs);
+        let open_prs = [("o/r".to_string(), 118), ("o/r".to_string(), 112)].into_iter().collect();
+        let v = workers_overview(&ds, |d| format!("Spec {}", d.spec), &merged_prs, &open_prs);
         let running: Vec<_> = v["running"].as_array().unwrap().iter().map(|r| r["spec"].as_i64().unwrap()).collect();
         assert_eq!(running, [2, 1], "planned ones aren't building");
         assert_eq!(v["running"][0]["tickets"][0]["state"], "review");
         let merged: Vec<_> = v["merged"].as_array().unwrap().iter().map(|r| r["spec"].as_i64().unwrap()).collect();
         assert_eq!(merged, [16, 15, 14, 13, 11, 10], "newest first; #12 settled without a merge");
         assert_eq!(v["merged"][0]["title"], "Spec 16");
+        let releasing: Vec<_> = v["releasing"].as_array().unwrap().iter().map(|r| r["spec"].as_i64().unwrap()).collect();
+        assert_eq!(releasing, [18, 17, 12], "a ready spec PR still open, or a plan waiting for Merge");
     }
 }

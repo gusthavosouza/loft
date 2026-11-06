@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { caption, workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
+import { caption, isReleasing, needyAgents, workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
 
 test("a worker works while its agent runs and rests otherwise", () => {
   assert.equal(workerState({ status: "running" }), "working");
@@ -67,4 +67,21 @@ test("the caption follows the priority: Waiting for you, Releasing, Working, Res
   assert.equal(caption({ ...f, working: true, releasing: true }), "Releasing");
   assert.equal(caption({ needsYou: true, releasing: true, working: true }), "Waiting for you");
   assert.equal(caption({ ...f, needsYou: true }), "Waiting for you");
+});
+
+test("an agent holds the sign while a Needs you item names it, and stops when the item clears", () => {
+  const item = (id: string | null) => ({ agent: id ? { id } : null });
+  assert.deepEqual([...needyAgents([item("a"), item(null), item("b"), item("a")])].sort(), ["a", "b"]);
+  const open = needyAgents([item("a")]);
+  assert.ok(open.has("a") && !open.has("b"));
+  assert.equal(needyAgents([]).has("a"), false, "cleared: back to digging or resting");
+});
+
+test("Releasing follows a spec PR found ready and not merged, or a merge being celebrated", () => {
+  const ov = (releasing?: { repo: string; spec: number }[]) => ({ running: [], merged: [], releasing });
+  assert.equal(isReleasing(null, false), false);
+  assert.equal(isReleasing(ov(), false), false);
+  assert.equal(isReleasing(ov([]), false), false);
+  assert.equal(isReleasing(ov([{ repo: "o/r", spec: 9 }]), false), true);
+  assert.equal(isReleasing(ov(), true), true);
 });

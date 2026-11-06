@@ -48,7 +48,8 @@ export function groupLook(agent: { group?: string }): { hat: string; shirt: stri
 export type DeliveryTicket = { number: number; title: string; state: string; verdicts?: Record<string, string> };
 export type RunningDelivery = { repo: string; spec: number; title: string; state: string; pr: number | null; dev: string; current: number | null; tickets: DeliveryTicket[] };
 export type MergedSpec = { repo: string; spec: number; title: string };
-export type Overview = { running: RunningDelivery[]; merged: MergedSpec[] };
+/** Spec PRs found ready (or plans waiting for Merge) that aren't merged yet. */
+export type Overview = { running: RunningDelivery[]; merged: MergedSpec[]; releasing?: { repo: string; spec: number }[] };
 
 export const keyOf = (d: { repo: string; spec: number }) => `${d.repo}#${d.spec}`;
 
@@ -106,4 +107,14 @@ export type Caption = "Waiting for you" | "Releasing" | "Working" | "Resting";
 /** What the team is doing, in priority order: a Needs you item is open, a spec PR is being released (marked ready or merged), any agent runs, else resting. */
 export function caption(s: { needsYou: boolean; releasing: boolean; working: boolean }): Caption {
   return s.needsYou ? "Waiting for you" : s.releasing ? "Releasing" : s.working ? "Working" : "Resting";
+}
+
+/** The ids of the agents with an open Needs you item: their workers hold the sign. Items about no agent name nobody. */
+export function needyAgents(items: { agent: { id: string } | null }[]): Set<string> {
+  return new Set(items.flatMap((i) => (i.agent ? [i.agent.id] : [])));
+}
+
+/** Is a spec PR being released: found ready and not merged yet, or its merge is being celebrated now. */
+export function isReleasing(ov: Overview | null, celebrating: boolean): boolean {
+  return celebrating || !!ov?.releasing?.length;
 }

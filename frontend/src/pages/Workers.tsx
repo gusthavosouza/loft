@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, ROLES, type Agent } from "../lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "../lib/events";
-import { caption, diffEvents, groupLook, kindOf, keyOf, pickHall, phaseOf, progress, PHASE_NAMES, type Overview, type RunningDelivery } from "../lib/workers";
+import { caption, diffEvents, isReleasing, needyAgents, groupLook, kindOf, keyOf, pickHall, phaseOf, progress, PHASE_NAMES, type Overview, type RunningDelivery } from "../lib/workers";
 import { geometry, makeWorld, pick, pushEvent, render, rescale, setFinished, setHall, stateLabel, step, syncAgents, taskLine, type Geo, type HallView, type Worker, type World } from "../lib/colony";
 
 const reducedQuery = () => window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -53,17 +53,18 @@ export default function WorkersPage() {
 
   const fresh = useRef(new Map<string, Agent | null>());
   const loadOverview = useCallback(() => { api.workersOverview().then(setReal).catch(() => {}); }, []);
+  const readNeeds = useCallback(() => { api.needsYou().then((r) => setNeeds(needyAgents(r.items))).catch(() => {}); }, []);
+  const needsTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     fresh.current.clear(); // loads on mount and again on each reconnect, as events sent while offline are lost
     api.agents().then((as) => setAgents(as.filter((a) => !fresh.current.has(a.id)).concat([...fresh.current.values()].filter((a): a is Agent => !!a)))).catch(() => {});
     loadOverview();
   }, [live, loadOverview]);
   useEffect(() => {
-    const read = () => api.needsYou().then((r) => setNeeds(new Set(r.items.flatMap((i) => (i.agent ? [i.agent.id] : []))))).catch(() => {});
-    read();
-    const t = setInterval(() => { read(); loadOverview(); }, 15000);
+    const t = setInterval(() => { readNeeds(); loadOverview(); }, 15000);
+    readNeeds();
     return () => clearInterval(t);
-  }, [loadOverview]);
+  }, [loadOverview, readNeeds]);
   const reload = useRef<ReturnType<typeof setTimeout>>(undefined);
   useServerEvents(
     useCallback((e: ServerEvent) => {
@@ -74,12 +75,17 @@ export default function WorkersPage() {
         fresh.current.set(e.agent_id, null);
         setAgents((as) => as.filter((a) => a.id !== e.agent_id));
       }
+      // A Needs you item opens or clears with an agent's update, a message or a permission request: one read soon after.
+      if (e.type === "agent_updated" || e.type === "message" || e.type === "permission" || e.type === "pull_request") {
+        clearTimeout(needsTimer.current);
+        needsTimer.current = setTimeout(readNeeds, 500);
+      }
       // Deliveries move with tickets and pull requests: one read soon after the last such event.
       if (e.type === "task" || e.type === "pull_request" || e.type === "agent_updated") {
         clearTimeout(reload.current);
         reload.current = setTimeout(loadOverview, 1500);
       }
-    }, [loadOverview]),
+    }, [loadOverview, readNeeds]),
   );
   useEffect(() => {
     const m = reducedQuery();
@@ -205,7 +211,7 @@ export default function WorkersPage() {
   const pct = view ? Math.round(view.pct) : 0;
   const ph = phaseOf(view?.pct ?? 0);
   let status: string, tone: string, glow: string;
-  const cap = caption({ needsYou: !!ui.need, releasing: !!ui.celebrate, working: ui.building + ui.inspecting > 0 });
+  const cap = caption({ needsYou: !!ui.need, releasing: isReleasing(ov, !!ui.celebrate), working: ui.building + ui.inspecting > 0 });
   if (cap === "Waiting for you") { status = `⚑ WAITING FOR YOU — ${(ui.need ?? "").toUpperCase()} NEEDS AN ANSWER`; tone = "text-[#ffb547]"; glow = "0 0 14px rgba(255,181,71,.55)"; }
   else if (cap === "Releasing") { status = `★ RELEASING — ${(view?.title ?? "SPEC").toUpperCase()} COMPLETE · SPEC MERGED`; tone = "text-[#ffe066]"; glow = "0 0 16px rgba(255,224,102,.6)"; }
   else if (cap === "Working") { status = `● WORKING — ${ui.building} AGENTS BUILDING${view ? ` ${view.title.toUpperCase()}` : ""} · ${ui.inspecting} INSPECTING · ${ui.resting} RESTING`; tone = "text-[#5ef08a]"; glow = "0 0 14px rgba(94,240,138,.55)"; }
