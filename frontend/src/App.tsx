@@ -5,7 +5,7 @@ import { api, type Agent, type Settings } from "./lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "./lib/events";
 import { cx } from "./lib/format";
 import { oldTasksTarget } from "./lib/oldTasks";
-import { caption, CAPTION_DOT, isReleasing } from "./lib/workers";
+import { caption, CAPTION_DOT, isReleasing, needyAgents } from "./lib/workers";
 import { mergeLoaded, unreadBadge, unreadCount, unreadTitle } from "./lib/unread";
 import ReposPage from "./pages/Repos";
 import AgentsPage from "./pages/agents/AgentsPage";
@@ -95,7 +95,7 @@ function WorkersTab({ live, tab }: { live: boolean; tab: (s: { isActive: boolean
   const [running, setRunning] = useState<Set<string>>(new Set());
   const [needy, setNeedy] = useState(false);
   const [releasing, setReleasing] = useState(false);
-  const readNeeds = useCallback(() => { api.needsYou().then((r) => setNeedy(r.items.length > 0)).catch(() => {}); }, []);
+  const readNeeds = useCallback(() => { api.needsYou().then((r) => setNeedy(needyAgents(r.items).size > 0)).catch(() => {}); }, []);
   const readReleasing = useCallback(() => { api.workersOverview().then((o) => setReleasing(isReleasing(o, false))).catch(() => {}); }, []);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {

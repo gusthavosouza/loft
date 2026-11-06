@@ -90,3 +90,7 @@ test("every caption has its own dot colour for the navigation button", () => {
   const all = (["Waiting for you", "Releasing", "Working", "Resting"] as const).map((c) => CAPTION_DOT[c]);
   assert.equal(new Set(all).size, 4);
 });
+
+test("a Needs you item that names no agent does not make the navigation button wait", () => {
+  assert.equal(needyAgents([{ agent: null }]).size, 0);
+});
