@@ -5,7 +5,7 @@ import { api, type Agent, type Settings } from "./lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "./lib/events";
 import { cx } from "./lib/format";
 import { oldTasksTarget } from "./lib/oldTasks";
-import { caption, CAPTION_DOT, isReleasing, needyAgents } from "./lib/workers";
+import { caption, CAPTION_DOT, isDisplay, isReleasing, needyAgents } from "./lib/workers";
 import { mergeLoaded, unreadBadge, unreadCount, unreadTitle } from "./lib/unread";
 import ReposPage from "./pages/Repos";
 import AgentsPage from "./pages/agents/AgentsPage";
@@ -176,6 +176,8 @@ export default function App() {
       "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors",
       isActive ? "bg-white/[0.08] text-fg" : "text-fg-3 hover:text-fg",
     );
+  // Display mode: no navigation or banners, only the scene, for a small screen left on.
+  if (isDisplay(location.pathname, location.search)) return <main className="h-full"><WorkersPage /></main>;
   return (
     <div className="flex h-full flex-col">
       <header className="sticky top-0 z-40 border-b border-line bg-ink-950/80 backdrop-blur-xl">

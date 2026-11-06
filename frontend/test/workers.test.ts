@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { caption, CAPTION_DOT, isReleasing, needyAgents, workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
+import { caption, CAPTION_DOT, isDisplay, isReleasing, needyAgents, workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
 
 test("a worker works while its agent runs and rests otherwise", () => {
   assert.equal(workerState({ status: "running" }), "working");
@@ -93,4 +93,11 @@ test("every caption has its own dot colour for the navigation button", () => {
 
 test("a Needs you item that names no agent does not make the navigation button wait", () => {
   assert.equal(needyAgents([{ agent: null }]).size, 0);
+});
+
+test("display mode is /workers with display=1 and nothing else", () => {
+  assert.equal(isDisplay("/workers", "?display=1"), true);
+  assert.equal(isDisplay("/workers", "?demo=1&display=1"), true);
+  assert.equal(isDisplay("/workers", ""), false);
+  assert.equal(isDisplay("/agents", "?display=1"), false);
 });

@@ -121,3 +121,8 @@ export function needyAgents(items: { agent: { id: string } | null }[]): Set<stri
 export function isReleasing(ov: Overview | null, celebrating: boolean): boolean {
   return celebrating || !!ov?.releasing?.length;
 }
+
+/** Display mode: `/workers?display=1`, the scene and its caption alone. */
+export function isDisplay(pathname: string, search: string): boolean {
+  return pathname === "/workers" && new URLSearchParams(search).get("display") === "1";
+}

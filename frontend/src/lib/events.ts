@@ -34,7 +34,14 @@ function connect() {
   if (source) return;
   source = new EventSource("/api/events");
   source.onopen = () => setConnected(true);
-  source.onerror = () => setConnected(false);
+  source.onerror = () => {
+    setConnected(false);
+    // The browser retries a dropped stream by itself, but gives up when the server answers with an error (a restart behind a proxy): open a new one.
+    if (source?.readyState === EventSource.CLOSED) {
+      source = null;
+      setTimeout(connect, 3000);
+    }
+  };
   source.onmessage = (m) => {
     try {
       const ev = JSON.parse(m.data) as ServerEvent;

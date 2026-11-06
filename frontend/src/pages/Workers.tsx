@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, ROLES, type Agent } from "../lib/api";
 import { useLiveConnection, useServerEvents, type ServerEvent } from "../lib/events";
+import { useWakeLock } from "../lib/wakeLock";
 import { caption, workerState, diffEvents, isReleasing, needyAgents, groupLook, kindOf, keyOf, pickHall, phaseOf, progress, PHASE_NAMES, type Overview, type RunningDelivery } from "../lib/workers";
 import { geometry, makeWorld, pick, pushEvent, render, rescale, setFinished, setHall, stateLabel, step, syncAgents, taskLine, type Geo, type HallView, type Worker, type World } from "../lib/colony";
 
@@ -42,7 +43,10 @@ function snapshot(w: World): Ui {
 
 /** Workers: a pixel settlement. Each agent is a worker; the running Delivery's spec is the hall they build, PR by PR. */
 export default function WorkersPage() {
-  const demoOn = useSearchParams()[0].get("demo") === "1";
+  const [params] = useSearchParams();
+  const demoOn = params.get("demo") === "1";
+  const display = params.get("display") === "1";
+  useWakeLock(display);
   const live = useLiveConnection();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [needs, setNeeds] = useState<Set<string>>(new Set());
@@ -151,7 +155,7 @@ export default function WorkersPage() {
   useEffect(() => {
     const canvas = canvasRef.current!, box = boxRef.current!, ctx = canvas.getContext("2d")!;
     const resize = () => {
-      const W = box.clientWidth, H = Math.round(Math.min(560, Math.max(330, W * 0.46))), dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const W = box.clientWidth, H = display ? box.clientHeight : Math.round(Math.min(560, Math.max(330, W * 0.46))), dpr = Math.min(window.devicePixelRatio || 1, 3);
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
       canvas.style.width = W + "px"; canvas.style.height = H + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -189,7 +193,7 @@ export default function WorkersPage() {
     };
     raf = requestAnimationFrame(loop);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, []);
+  }, [display]);
 
   const local = (e: React.MouseEvent) => {
     const r = canvasRef.current!.getBoundingClientRect();
@@ -221,9 +225,10 @@ export default function WorkersPage() {
   );
 
   return (
-    <div className="h-full overflow-y-auto bg-[#0f0d1d] px-3 py-4 sm:px-4">
-      <div className="mx-auto max-w-[1280px] overflow-hidden rounded-2xl border border-white/10 bg-[#151a36] shadow-[0_20px_60px_-20px_rgba(0,0,0,.7)]">
-        <div ref={boxRef} className="relative w-full">
+    <div className={display ? "h-full bg-[#0f0d1d]" : "h-full overflow-y-auto bg-[#0f0d1d] px-3 py-4 sm:px-4"}>
+      <div className={display ? "flex h-full flex-col overflow-hidden bg-[#151a36]" : "mx-auto max-w-[1280px] overflow-hidden rounded-2xl border border-white/10 bg-[#151a36] shadow-[0_20px_60px_-20px_rgba(0,0,0,.7)]"}>
+        <div ref={boxRef} className={display ? "relative min-h-0 w-full flex-1" : "relative w-full"}>
+          {display && <Link to="/workers" aria-label="Leave display mode" title="Leave display mode" className="absolute right-2 top-2 z-10 rounded-full bg-black/30 px-2 py-0.5 text-[13px] text-white/50 hover:text-white">×</Link>}
           <canvas ref={canvasRef} onClick={onClick} onMouseMove={onMove} onMouseLeave={onLeave} className="block"
             role="img" aria-label="Animated colony: agents dig at the quarry, haul materials to build the running spec's hall, and rest at camp" />
           <div ref={bubbleRef} className="pointer-events-auto absolute left-0 top-0 hidden w-[220px] rounded-xl border-[1.5px] border-[#1a1424] bg-[#fbf6ec] px-3 py-2 text-[12px] leading-snug text-[#231a2b]">
@@ -238,7 +243,7 @@ export default function WorkersPage() {
           </div>
         </div>
         <div className="space-y-2.5 border-t border-white/10 bg-[rgba(18,14,32,0.85)] p-3 backdrop-blur-md">
-          <div>
+          {!display && <div>
             {view ? (
               <>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-[13px]">
@@ -250,13 +255,14 @@ export default function WorkersPage() {
             ) : (
               <div className="text-[13px] font-semibold text-[#f6ead7]">🏗️ Waiting for a spec <span className="font-normal text-[#b9adc9]">· no Delivery is running</span></div>
             )}
-          </div>
+          </div>}
           <div className="overflow-hidden whitespace-nowrap border-y border-white/10 py-2">
             <div className={`marquee inline-flex gap-16 font-mono text-[12.5px] font-semibold tracking-[0.08em] ${tone}`} style={{ textShadow: glow }}>
               <span>{status}</span><span aria-hidden="true">{status}</span><span aria-hidden="true">{status}</span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {!display && <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Link to="/workers?display=1" className="rounded-full bg-white/10 px-3.5 py-1.5 text-[13px] font-semibold tracking-wide text-[#efe6d8] hover:bg-white/20">Display mode</Link>
             {demoOn && (
               <>
                 <div className="flex flex-wrap gap-1.5">
@@ -275,7 +281,7 @@ export default function WorkersPage() {
             <div className="ml-auto font-mono text-[12.5px] tabular-nums text-[#f6ead7]">
               [ 🔨 Building: <b className="text-[#5ef08a]">{ui.building}</b> | 🔍 Inspecting: <b className="text-[#9fc6ff]">{ui.inspecting}</b> | ⛺ Resting: <b className="text-[#ffb547]">{ui.resting}</b> | 🏠 Finished: <b>{Math.min(5, ov?.merged.length ?? 0)}</b> ]
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>
