@@ -903,6 +903,46 @@ pub async fn issue_delivery(State(state): State<AppState>, Path(id): Path<String
     Ok(Json(delivery_json(&state, &d)))
 }
 
+/// What the Workers page shows of the Deliveries: the ones building now (newest first), each with its tickets,
+/// and the last five merged specs. Pure, so it can be tested: `title` names a spec, `merged_prs` are the
+/// `(repo, number)` of spec PRs GitHub merged (a Delivery "settled" is merged only when its PR is one of them).
+fn workers_overview(ds: &[Delivery], title: impl Fn(&Delivery) -> String, merged_prs: &std::collections::HashSet<(String, i64)>) -> Value {
+    let mut ds: Vec<&Delivery> = ds.iter().collect();
+    ds.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let running: Vec<Value> = ds
+        .iter()
+        .filter(|d| matches!(d.state.as_str(), "running" | "final_review" | "final_fixes"))
+        .map(|d| {
+            json!({
+                "repo": d.repo, "spec": d.spec, "title": title(d), "state": d.state, "pr": d.pr, "dev": d.dev, "current": d.current,
+                "tickets": d.tickets.iter().map(|t| json!({ "number": t.number, "title": t.title, "state": t.state, "verdicts": t.verdicts })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let merged: Vec<Value> = ds
+        .iter()
+        .filter(|d| d.state == "merged" || (d.state == "settled" && d.pr.is_some_and(|pr| merged_prs.contains(&(d.repo.clone(), pr)))))
+        .take(5)
+        .map(|d| json!({ "repo": d.repo, "spec": d.spec, "title": title(d) }))
+        .collect();
+    json!({ "running": running, "merged": merged })
+}
+
+/// `GET /api/deliveries/workers`: the Deliveries for the Workers page, read-only.
+pub async fn workers_route(State(state): State<AppState>) -> ApiResult<Value> {
+    let mut ds = vec![];
+    for s in ["running", "final_review", "final_fixes", "merged", "settled"] {
+        ds.extend(state.db.deliveries_in_state(s)?);
+    }
+    let tasks = state.db.list_tasks()?;
+    let merged_prs = state.db.list_pull_requests(None)?.into_iter().filter(|p| p.state == "merged").map(|p| (p.slug, p.number)).collect();
+    let title = |d: &Delivery| {
+        let named = if d.local { d.title.clone() } else { tasks.iter().find(|t| t.github.as_ref().is_some_and(|g| g.repo == d.repo && g.number == d.spec)).map(|t| t.title.clone()).unwrap_or_default() };
+        if named.is_empty() { format!("Spec #{}", d.spec) } else { named }
+    };
+    Ok(Json(workers_overview(&ds, title, &merged_prs)))
+}
+
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
 pub struct StartQuery {
@@ -1247,5 +1287,25 @@ mod tests {
         d.local = true;
         d.tickets.push(DeliveryTicket { number: 1, title: "A".into(), blocked_by: vec![], state: "open".into(), rounds: 0, commits: vec![], verdicts: Default::default(), id: "loft-issue-1".into(), skipped: String::new() });
         assert_eq!(ticket_key(&d, Some(1)), crate::agents::message_ticket_key("loft-issue-1", None).unwrap().unwrap());
+    }
+
+    #[test]
+    fn workers_overview_lists_running_deliveries_newest_first_and_the_last_five_merged() {
+        let d = |spec: i64, state: &str, pr: Option<i64>, at: &str| -> Delivery {
+            serde_json::from_value(serde_json::json!({ "repo": "o/r", "spec": spec, "state": state, "pr": pr, "created_at": at, "tickets": [{ "number": spec + 1, "state": "review" }] })).unwrap()
+        };
+        let ds = vec![
+            d(1, "running", None, "2026-01-01"), d(2, "running", None, "2026-02-01"), d(3, "planned", None, "2026-03-01"),
+            d(10, "merged", None, "2026-01-10"), d(11, "settled", Some(111), "2026-01-11"), d(12, "settled", Some(112), "2026-01-12"),
+            d(13, "merged", None, "2026-01-13"), d(14, "merged", None, "2026-01-14"), d(15, "merged", None, "2026-01-15"), d(16, "merged", None, "2026-01-16"),
+        ];
+        let merged_prs = [("o/r".to_string(), 111)].into_iter().collect();
+        let v = workers_overview(&ds, |d| format!("Spec {}", d.spec), &merged_prs);
+        let running: Vec<_> = v["running"].as_array().unwrap().iter().map(|r| r["spec"].as_i64().unwrap()).collect();
+        assert_eq!(running, [2, 1], "planned ones aren't building");
+        assert_eq!(v["running"][0]["tickets"][0]["state"], "review");
+        let merged: Vec<_> = v["merged"].as_array().unwrap().iter().map(|r| r["spec"].as_i64().unwrap()).collect();
+        assert_eq!(merged, [16, 15, 14, 13, 11], "the last five; #12 settled without a merge");
+        assert_eq!(v["merged"][0]["title"], "Spec 16");
     }
 }

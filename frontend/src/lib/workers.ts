@@ -1,16 +1,23 @@
-/** The Workers page's pure parts: an agent's worker state, its group's look, and the scene's layout. */
+/** The Workers page's pure parts: an agent's worker state and look, the Delivery's hall and its events. */
 
-export type WorkerState = "digging" | "resting";
+export type WorkerState = "working" | "resting";
 
-/** Digging while the agent runs a run, resting otherwise. */
+/** Working while the agent runs a run, resting otherwise. */
 export function workerState(agent: { status: string }): WorkerState {
-  return agent.status === "running" ? "digging" : "resting";
+  return agent.status === "running" ? "working" : "resting";
 }
 
-/** Hat colors that read well on the dark scene. */
-export const HAT_COLORS = ["#f2b632", "#f27d6d", "#7fd99a", "#8cb8ff", "#b99bff", "#f28fc4", "#5fd3d0", "#f2955f"];
-/** Agents with no group share this. */
-export const NEUTRAL_HAT = "#9aa0a6";
+/** What a worker does at the settlement: Devs (and Custom agents) haul, checkers inspect, a Lead walks the site. */
+export type Kind = "dev" | "qa" | "security" | "reviewer" | "lead";
+export function kindOf(role?: string): Kind {
+  return role === "lead" ? "lead" : role === "qa" ? "qa" : role === "security" ? "security" : role === "code_reviewer" ? "reviewer" : "dev";
+}
+
+/** Hat bands that read well on the grass. */
+export const HAT_COLORS = ["#d9463b", "#e8a33b", "#4a7fd6", "#3cae76", "#c25b9e", "#2f9a8a", "#7b4bb0", "#e0703a"];
+const SHIRTS = ["#3f7fd0", "#c4473c", "#2f9a8a", "#7b4bb0", "#e0a53a", "#8a5a30", "#3cae76", "#c25b9e"];
+/** Agents with no group share this look. */
+export const NEUTRAL = { hat: "#9a9cad", shirt: "#8d8a97" };
 
 /** FNV-1a: the same label gives the same number in every browser and on every reload. */
 function hash(s: string): number {
@@ -27,71 +34,67 @@ export function initials(label: string): string {
   return letters.join("").toUpperCase();
 }
 
-/** The look of a worker from its agent's group label (a group is only a label): hat color and T-shirt initials. No group: neutral. */
-export function groupLook(agent: { group?: string }): { hat: string; initials: string } {
+/** The look of a worker from its agent's group label (a group is only a label): hat band, shirt, hat style and initials. No group: neutral. */
+export function groupLook(agent: { group?: string }): { hat: string; shirt: string; straw: boolean; initials: string } {
   const label = agent.group?.trim() ?? "";
-  if (!label) return { hat: NEUTRAL_HAT, initials: "" };
-  return { hat: HAT_COLORS[hash(label.toLowerCase()) % HAT_COLORS.length], initials: initials(label) };
+  if (!label) return { ...NEUTRAL, straw: false, initials: "" };
+  const h = hash(label.toLowerCase());
+  const hat = h % HAT_COLORS.length;
+  return { hat: HAT_COLORS[hat], shirt: SHIRTS[(h >>> 8) % SHIRTS.length === hat ? ((h >>> 8) + 1) % SHIRTS.length : (h >>> 8) % SHIRTS.length], straw: (h >>> 16) % 2 === 0, initials: initials(label) };
 }
 
-/** Where something stands in the scene: its centre x and the y of its feet, and its size (the side of its square). */
-export type Spot = { x: number; y: number; s: number };
-export type SceneLayout = { w: number; h: number; surfY: number; shaftW: number; digs: Spot[]; rests: Spot[]; fire: Spot };
+/* ---------- the hall: the spec of the most recently active running Delivery ---------- */
 
-const SHAFT = 28;
-const GOLDEN = 2.39996;
+export type DeliveryTicket = { number: number; title: string; state: string; verdicts?: Record<string, string> };
+export type RunningDelivery = { repo: string; spec: number; title: string; state: string; pr: number | null; dev: string; current: number | null; tickets: DeliveryTicket[] };
+export type MergedSpec = { repo: string; spec: number; title: string };
+export type Overview = { running: RunningDelivery[]; merged: MergedSpec[] };
 
-/**
- * The scene on a `w` x `h` canvas: the surface (sky, grass) on top, the earth under it. Diggers stand in pockets of
- * the earth in a staggered grid, as big as they fit; resters sit around the campfire on the surface, spread in a
- * squashed spiral so they are not in rows. Everything lies inside the canvas and diggers' boxes never overlap.
- */
-export function sceneLayout(dig: number, rest: number, w: number, h: number): SceneLayout {
-  const share = rest / Math.max(1, dig + rest);
-  const surfY = Math.round(h * (0.28 + 0.22 * share));
+export const keyOf = (d: { repo: string; spec: number }) => `${d.repo}#${d.spec}`;
 
-  // Diggers: the grid (columns) that gives them the biggest size.
-  const x0 = SHAFT + 10;
-  const gw = w - x0 - 10;
-  const top = surfY + 34;
-  const gh = h - 12 - top;
-  let best = { cols: 1, size: 0 };
-  for (let c = 1; c <= Math.max(1, dig); c++) {
-    const rows = Math.ceil(dig / c);
-    const size = Math.min(120, gw / (c + (rows > 1 ? 0.5 : 0)), gh / (rows * 1.05));
-    if (size > best.size + 1e-9) best = { cols: c, size };
-  }
-  const rows = Math.ceil(dig / best.cols);
-  const size = Math.max(10, Math.floor(best.size));
-  const cellH = gh / Math.max(1, rows);
-  const digs: Spot[] = Array.from({ length: dig }, (_, i) => {
-    const col = i % best.cols;
-    const row = Math.floor(i / best.cols);
-    const slack = Math.max(0, cellH - size * 1.05);
-    const jitter = (((i * 7) % 5) - 2) / 2 * slack * 0.5;
-    const stagger = rows > 1 && row % 2 ? 0.5 : 0;
-    return { x: x0 + size * (col + 0.5 + stagger) + (gw - size * (best.cols + (rows > 1 ? 0.5 : 0))) / 2, y: top + cellH * (row + 0.5) + size * 0.5 + jitter, s: size };
-  });
+/** Tickets done out of the Delivery's tickets. */
+export function progress(d: RunningDelivery): { done: number; total: number; pct: number } {
+  const total = d.tickets.length;
+  const done = d.tickets.filter((t) => t.state === "closed").length;
+  return { done, total, pct: total ? (100 * done) / total : 0 };
+}
 
-  // Resters: a squashed phyllotaxis spiral around the fire, the biggest size at which all fit on the surface.
-  const fx = w / 2;
-  let rests: Spot[] = [];
-  let fire: Spot = { x: fx, y: surfY - 10, s: 40 };
-  for (let s = 110; s >= 16; s -= 2) {
-    const fy = (s + 8 + surfY + 8) / 2;
-    const c = 0.8 * s;
-    const pts: Spot[] = [];
-    for (let i = 0; pts.length < rest && i < rest * 6 + 12; i++) {
-      const r = c * Math.sqrt(i + 3);
-      const x = fx + r * Math.cos(i * GOLDEN);
-      const y = fy + r * Math.sin(i * GOLDEN) * 0.32;
-      if (Math.abs(x - fx) < 0.8 * s && y < fy + 0.6 * s && y > fy - 0.6 * s) continue; // that's the fire
-      pts.push({ x, y, s });
+/** The five phases of the building, by how much of the spec is done (the prototype's thresholds). */
+export function phaseOf(pct: number): 1 | 2 | 3 | 4 | 5 {
+  const p = pct / 100;
+  return p >= 1 ? 5 : p > 0.75 ? 4 : p > 0.5 ? 3 : p > 0.25 ? 2 : 1;
+}
+export const PHASE_NAMES = ["", "Foundation & blueprints", "Stone base & scaffolding", "Timber framing", "Roof & finishing touches", "Complete"];
+
+/** The hall: the running Delivery whose Dev is running now, else the newest running one (the list is newest first); none: an empty lot. */
+export function pickHall(running: RunningDelivery[], agents: { id: string; status: string }[]): RunningDelivery | null {
+  const busy = new Set(agents.filter((a) => a.status === "running").map((a) => a.id));
+  return running.find((d) => busy.has(d.dev)) ?? running[0] ?? null;
+}
+
+export type HallEvent =
+  | { type: "closed"; key: string; number: number }
+  | { type: "review"; key: string; number: number }
+  | { type: "merged"; key: string; spec: number; title: string };
+
+/** What changed between two overviews: tickets that closed, tickets that went into review, specs that merged. Nothing on the first one. */
+export function diffEvents(prev: Overview | null, next: Overview): HallEvent[] {
+  if (!prev) return [];
+  const out: HallEvent[] = [];
+  for (const d of prev.running) {
+    const key = keyOf(d);
+    const now = next.running.find((n) => keyOf(n) === key);
+    if (!now) {
+      const m = next.merged.find((m) => keyOf(m) === key);
+      if (m) out.push({ type: "merged", key, spec: m.spec, title: m.title });
+      continue;
     }
-    const fits = pts.every((p) => p.x >= s / 2 + 4 && p.x <= w - s / 2 - 4 && p.y >= s + 8 && p.y <= surfY + 8);
-    fire = { x: fx, y: fy, s };
-    rests = pts;
-    if (fits || s <= 16) break;
+    for (const t of now.tickets) {
+      const was = d.tickets.find((p) => p.number === t.number)?.state;
+      if (was === t.state) continue;
+      if (t.state === "closed") out.push({ type: "closed", key, number: t.number });
+      else if (t.state === "review") out.push({ type: "review", key, number: t.number });
+    }
   }
-  return { w, h, surfY, shaftW: SHAFT, digs, rests, fire };
+  return out;
 }

@@ -1,62 +1,61 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { workerState, groupLook, initials, sceneLayout, HAT_COLORS, NEUTRAL_HAT } from "../src/lib/workers.ts";
+import { workerState, kindOf, groupLook, initials, HAT_COLORS, NEUTRAL, progress, phaseOf, pickHall, diffEvents, type RunningDelivery, type Overview } from "../src/lib/workers.ts";
 
-test("a worker digs while its agent runs and rests otherwise", () => {
-  assert.equal(workerState({ status: "running" }), "digging");
+test("a worker works while its agent runs and rests otherwise", () => {
+  assert.equal(workerState({ status: "running" }), "working");
   for (const status of ["idle", "waiting", "error", ""]) assert.equal(workerState({ status }), "resting");
+});
+
+test("a role decides what the worker does; Custom and no role haul like a Dev", () => {
+  assert.deepEqual(["lead", "dev", "qa", "security", "code_reviewer", "custom", undefined].map(kindOf), ["lead", "dev", "qa", "security", "reviewer", "dev", "dev"]);
 });
 
 test("initials are 1–3 letters from the group label", () => {
   assert.equal(initials("Dineout"), "DI");
-  assert.equal(initials("loft"), "LO");
   assert.equal(initials("Acme Corp"), "AC");
   assert.equal(initials("big old acme team"), "BOA");
   assert.equal(initials("x"), "X");
   assert.equal(initials("  "), "");
 });
 
-test("a group's hat color is stable, from the palette, and ignores case", () => {
+test("a group's look is stable, from the palette, and ignores case; the shirt never matches the hat", () => {
   const a = groupLook({ group: "Dineout" });
-  assert.deepEqual(groupLook({ group: "Dineout" }), a);
-  assert.deepEqual(groupLook({ group: "dineout" }).hat, a.hat);
+  assert.deepEqual(groupLook({ group: "dineout" }), a);
   assert.ok(HAT_COLORS.includes(a.hat));
   assert.equal(a.initials, "DI");
-  const hats = new Set(["Loft", "Dineout", "Acme", "Zed", "Notes", "Api"].map((g) => groupLook({ group: g }).hat));
-  assert.ok(hats.size > 2, "different groups mostly differ");
+  const looks = ["Loft", "Dineout", "Acme", "Zed", "Notes", "Api", "Passora"].map((g) => groupLook({ group: g }));
+  assert.ok(new Set(looks.map((l) => l.hat)).size > 2, "different groups mostly differ");
+  for (const l of looks) assert.notEqual(l.hat, l.shirt);
 });
 
-test("an agent without a group is neutral, whatever its project", () => {
-  assert.deepEqual(groupLook({ group: "" }), { hat: NEUTRAL_HAT, initials: "" });
-  assert.deepEqual(groupLook({ group: " " }), { hat: NEUTRAL_HAT, initials: "" });
-  assert.deepEqual(groupLook({}), { hat: NEUTRAL_HAT, initials: "" });
+test("an agent without a group gets the neutral look", () => {
+  for (const group of [undefined, "", "  "]) assert.deepEqual(groupLook({ group }), { ...NEUTRAL, straw: false, initials: "" });
 });
 
-test("the scene fits 1, 8 and 40 workers on a wide and a narrow canvas: inside it, diggers apart, resters on the surface", () => {
-  for (const [w, h] of [[1000, 590], [400, 800], [400, 500]]) {
-    for (const total of [1, 8, 40]) {
-      for (const dig of [0, Math.floor(total / 2), total]) {
-        const l = sceneLayout(dig, total - dig, w, h);
-        assert.equal(l.digs.length, dig);
-        assert.equal(l.rests.length, total - dig);
-        const label = `${dig}+${total - dig} on ${w}x${h}`;
-        for (const p of [...l.digs, ...l.rests]) {
-          assert.ok(p.x - p.s / 2 >= 0 && p.x + p.s / 2 <= w && p.y - p.s >= 0 && p.y <= h, `inside: ${label}`);
-        }
-        for (const p of l.digs) assert.ok(p.y - p.s >= l.surfY, `diggers are underground: ${label}`);
-        for (const p of l.rests) assert.ok(p.y <= l.surfY + 8, `resters are on the surface: ${label}`);
-        for (const [i, a] of l.digs.entries()) {
-          for (const b of l.digs.slice(i + 1)) {
-            const apart = Math.abs(a.x - b.x) >= (a.s + b.s) / 2 - 1 || Math.abs(a.y - b.y) >= (a.s + b.s) / 2 - 1;
-            assert.ok(apart, `diggers don't overlap: ${label}`);
-          }
-        }
-      }
-    }
-  }
+const tk = (number: number, state: string) => ({ number, title: `T${number}`, state });
+const del = (spec: number, dev: string, tickets: ReturnType<typeof tk>[]): RunningDelivery => ({ repo: "o/r", spec, title: `Spec ${spec}`, state: "running", pr: null, dev, current: null, tickets });
+
+test("a Delivery's progress is its closed tickets out of all, and the phase follows the percentage", () => {
+  assert.deepEqual(progress(del(1, "", [tk(2, "closed"), tk(3, "review"), tk(4, "open"), tk(5, "closed")])), { done: 2, total: 4, pct: 50 });
+  assert.deepEqual(progress(del(1, "", [])), { done: 0, total: 0, pct: 0 });
+  assert.deepEqual([0, 25, 26, 50, 51, 75, 76, 99, 100].map(phaseOf), [1, 1, 2, 2, 3, 3, 4, 4, 5]);
 });
 
-test("a lone worker is big and many are smaller", () => {
-  assert.ok(sceneLayout(1, 0, 1000, 590).digs[0].s > sceneLayout(40, 0, 1000, 590).digs[0].s * 1.3);
-  assert.ok(sceneLayout(0, 1, 1000, 590).rests[0].s > sceneLayout(0, 40, 1000, 590).rests[0].s);
+test("the hall is the running Delivery whose Dev works now, else the newest; none is an empty lot", () => {
+  const running = [del(2, "b", []), del(1, "a", [])];
+  assert.equal(pickHall(running, [{ id: "a", status: "running" }, { id: "b", status: "idle" }])?.spec, 1);
+  assert.equal(pickHall(running, [{ id: "a", status: "idle" }])?.spec, 2);
+  assert.equal(pickHall([], [{ id: "a", status: "running" }]), null);
+});
+
+test("events: a ticket closing, one going into review, the spec merging; none on the first load or when nothing changed", () => {
+  const before: Overview = { running: [del(1, "a", [tk(2, "started"), tk(3, "open"), tk(4, "review")])], merged: [] };
+  assert.deepEqual(diffEvents(null, before), []);
+  assert.deepEqual(diffEvents(before, before), []);
+  const after: Overview = { running: [del(1, "a", [tk(2, "review"), tk(3, "open"), tk(4, "closed")])], merged: [] };
+  assert.deepEqual(diffEvents(before, after), [{ type: "review", key: "o/r#1", number: 2 }, { type: "closed", key: "o/r#1", number: 4 }]);
+  const merged: Overview = { running: [], merged: [{ repo: "o/r", spec: 1, title: "Spec 1" }] };
+  assert.deepEqual(diffEvents(after, merged), [{ type: "merged", key: "o/r#1", spec: 1, title: "Spec 1" }]);
+  assert.deepEqual(diffEvents(after, { running: [], merged: [] }), [], "closed without a merge is no celebration");
 });

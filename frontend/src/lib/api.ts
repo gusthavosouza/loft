@@ -547,6 +547,8 @@ export const api = {
 
   agents: () => req<Agent[]>("GET", "/agents"),
   /** Only what the ⌘J shortcut reads; see docs/needs-you-api.md for the whole item. */
+  /** The Workers page's Deliveries: the ones building now (newest first) and the last five merged specs. */
+  workersOverview: () => req<import("./workers").Overview>("GET", "/deliveries/workers"),
   needsYou: () => req<{ items: { agent: { id: string; name: string } | null }[] }>("GET", "/needs-you"),
   agentsSummary: () => req<AgentsSummary>("GET", "/agents/summary?totals=true"),
   createAgent: (a: Partial<Agent>) => req<Agent & { notice?: string }>("POST", "/agents", a),
