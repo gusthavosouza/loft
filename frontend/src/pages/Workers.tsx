@@ -27,6 +27,19 @@ function simulateMerge(ov: Overview): Overview {
 type Ui = { building: number; inspecting: number; resting: number; need: string | null; celebrate: string | null; sel: { id: string; name: string; role: string; group: string; task: string; state: string } | null };
 const NO_UI: Ui = { building: 0, inspecting: 0, resting: 0, need: null, celebrate: null, sel: null };
 
+/** The dock's numbers, counted from the colony's agents by what they are doing now. */
+function snapshot(w: World): Ui {
+  const ag = w.agents, needy = ag.find((a) => a.need), sa = ag.find((a) => a.id === w.selected);
+  return {
+    building: ag.filter((a) => ["DISPATCHING", "WORKING", "HAULING", "PLANNING"].includes(a.state)).length,
+    inspecting: ag.filter((a) => a.state === "INSPECTING" || a.state === "STANDBY").length,
+    resting: ag.filter((a) => a.state === "RESTING" || a.state === "RETURNING_TO_CAMP").length,
+    need: needy ? needy.name : null,
+    celebrate: w.hall.celebrate > 0 ? w.hall.celebrating : null,
+    sel: sa ? { id: sa.id, name: sa.name, role: sa.roleLabel, group: sa.group, task: taskLine(sa, w), state: stateLabel(sa.state) } : null,
+  };
+}
+
 /** Workers: a pixel settlement. Each agent is a worker; the running Delivery's spec is the hall they build, PR by PR. */
 export default function WorkersPage() {
   const demoOn = useSearchParams()[0].get("demo") === "1";
@@ -109,7 +122,11 @@ export default function WorkersPage() {
   const prevOv = useRef<Overview | null>(null);
   const hallKey = useRef<string | null>(null);
 
-  useEffect(() => { if (geo.current) syncAgents(world.current, geo.current, workers); }, [workers]);
+  useEffect(() => {
+    if (!geo.current) return;
+    syncAgents(world.current, geo.current, workers);
+    setUi(snapshot(world.current));
+  }, [workers]);
   useEffect(() => {
     if (!ov) return;
     setFinished(world.current, ov.merged.slice(0, 5).map((m) => ({ key: keyOf(m), title: m.title, spec: m.spec })));
@@ -155,16 +172,7 @@ export default function WorkersPage() {
       uiT -= dt;
       if (uiT <= 0) {
         uiT = 0.2;
-        const ag = w.agents;
-        const needy = ag.find((a) => a.need);
-        setUi({
-          building: ag.filter((a) => ["DISPATCHING", "WORKING", "HAULING", "PLANNING"].includes(a.state)).length,
-          inspecting: ag.filter((a) => a.state === "INSPECTING" || a.state === "STANDBY").length,
-          resting: ag.filter((a) => a.state === "RESTING" || a.state === "RETURNING_TO_CAMP").length,
-          need: needy ? needy.name : null,
-          celebrate: w.hall.celebrate > 0 ? w.hall.celebrating : null,
-          sel: sa ? { id: sa.id, name: sa.name, role: sa.roleLabel, group: sa.group, task: taskLine(sa, w), state: stateLabel(sa.state) } : null,
-        });
+        setUi(snapshot(w));
       }
       raf = requestAnimationFrame(loop);
     };

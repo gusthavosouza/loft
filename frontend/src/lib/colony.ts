@@ -45,7 +45,7 @@ export type Sim = Worker & {
   num: number | null;
   /** The ticket this haul delivers ("+1 #N"). */
   deliver: number | null;
-  rush: boolean; patrol: number; dest: number; labelTop?: number;
+  rush: boolean; rowCur: number; patrol: number; dest: number; labelTop?: number;
 };
 type Particle = { type: string; x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color?: string };
 type Float = { x: number; y: number; text: string; color: string; life: number };
@@ -98,13 +98,18 @@ export function groundY(g: Geo, x: number): number {
 }
 const workX = (g: Geo, n: number) => g.qL + (0.12 + 0.76 * ((n * 0.37) % 1)) * (g.qR - g.qL);
 const dropX = (g: Geo, n: number) => g.siteX + ((n % 5) - 2) * 12 * g.s;
-/** Camp spot n: alternating sides of the fire, closer packed when many agents share the camp. */
-function campX(g: Geo, n: number, total: number) {
-  const k = Math.floor(n / 2), side = n % 2 === 0 ? -1 : 1, per = Math.ceil(total / 2);
-  // a crowd spreads wider than the camp (up to the site), about 11px apart
-  const span = Math.max((g.campR - g.campL) / 2, per * 11 * g.s + 10);
-  const step = Math.min(0.17, 0.74 / Math.max(1, per - 1));
-  return clamp(g.fireX + side * (0.24 + step * k) * span, g.campL + 8, Math.max(g.campR - 4, g.siteL - 16 * g.s));
+/**
+ * Camp spot n: agents sit on both sides of the fire about 15px apart, out to the site on the right; when a row is full the
+ * next row stands behind it, higher and a little smaller, so a crowd never piles up on one spot.
+ */
+const ROW = 20;
+function campSlot(g: Geo, n: number): { x: number; row: number } {
+  const gap = 19 * g.s, left = Math.max(1, Math.floor((g.fireX - (g.campL + 8)) / gap)), right = Math.max(1, Math.floor((g.siteL - 14 * g.s - g.fireX) / gap));
+  const both = 2 * Math.min(left, right), perRow = left + right;
+  const row = Math.floor(n / perRow), m = n % perRow;
+  const side = m < both ? (m % 2 === 0 ? -1 : 1) : left > right ? -1 : 1;
+  const k = m < both ? Math.floor(m / 2) : Math.min(left, right) + (m - both);
+  return { x: g.fireX + side * (gap * 0.9 + k * gap), row };
 }
 const postX = (g: Geo, a: Sim) => (a.kind === "qa" ? g.siteL + 6 * g.s : g.siteR - (a.kind === "security" ? 22 : 6) * g.s) + (a.n % 3) * 7 * g.s;
 const patrolX = (g: Geo, k: number) => [g.siteL + 20 * g.s, g.siteX, g.siteR - 20 * g.s, g.siteX - 30 * g.s][k % 4];
@@ -120,13 +125,14 @@ export function syncAgents(w: World, g: Geo, list: Worker[]) {
     const a = {
       ...wk, n, x: 0, y: 0, state: S.RESTING as St, phase: rand(0, 6), actT: rand(1, 4), dir: 1, moving: false, prevS: 0,
       pose: REST_POSES[n % 3], zT: rand(0, 1.4), dustT: 0, carry: false, load: n % 2 ? "stone" : "timber", action: n % 2 ? "hammer" : "dig",
-      num: null, deliver: null, rush: false, patrol: 0, dest: 0,
+      num: null, deliver: null, rush: false, rowCur: 0, patrol: 0, dest: 0,
     } as Sim;
-    if (!wk.on) a.x = campX(g, n, list.length);
+    if (!wk.on) a.x = campSlot(g, n).x;
     else if (wk.kind === "dev") { a.state = S.WORKING; a.x = workX(g, n); }
     else if (wk.kind === "lead") { a.state = S.PLANNING; a.x = patrolX(g, 0); }
     else { a.state = S.STANDBY; a.x = postX(g, a); }
-    a.y = groundY(g, a.x);
+    a.rowCur = a.on ? 0 : campSlot(g, n).row;
+    a.y = groundY(g, a.x) - a.rowCur * ROW * g.s;
     return a;
   });
   if (w.selected && w.selected !== "hall" && !w.selected.startsWith("hill:") && !list.some((a) => a.id === w.selected)) w.selected = null;
@@ -134,7 +140,7 @@ export function syncAgents(w: World, g: Geo, list: Worker[]) {
 
 /** Keeps agents where they stood when the canvas is resized. */
 export function rescale(w: World, g: Geo, ratio: number) {
-  for (const a of w.agents) { a.x *= ratio; a.dest *= ratio; a.y = groundY(g, a.x); }
+  for (const a of w.agents) { a.x *= ratio; a.dest *= ratio; a.y = groundY(g, a.x) - a.rowCur * ROW * g.s; }
 }
 
 /** The hall to build: its progress eases toward `view.pct` (never to the full building until the spec merges). Null: an empty lot. */
@@ -208,9 +214,8 @@ export function step(w: World, g: Geo, dt: number) {
     }
   } else h.shown += (h.target - h.shown) * Math.min(1, dt * 2);
 
-  const total = w.agents.length;
   for (const a of w.agents) {
-    const cx = campX(g, a.n, total), dev = a.kind === "dev";
+    const cx = campSlot(g, a.n).x, dev = a.kind === "dev";
     a.moving = false;
     if (!a.on && ![S.RESTING, S.RETURNING, S.HAULING].includes(a.state as never)) { a.state = S.RETURNING; a.deliver = null; }
     switch (a.state) {
@@ -261,7 +266,10 @@ export function step(w: World, g: Geo, dt: number) {
         break;
     }
     if (a.moving) { a.dustT -= dt * w.speed; if (a.dustT <= 0) { a.dustT = 0.22; emit(w, { type: "dust", x: a.x - a.dir * 4 * g.s, y: a.y - 1, vx: -a.dir * rand(5, 20), vy: rand(-18, -6), life: 0.5, max: 0.5, size: rand(1.5, 2.6) * g.s, color: "#b8936a" }); } }
-    a.y = groundY(g, a.x);
+    // at rest the agent stands in its camp row (higher and smaller toward the back); at work it is on the ground
+    const target = a.state === S.RESTING || a.state === S.RETURNING ? campSlot(g, a.n).row : 0;
+    a.rowCur += (target - a.rowCur) * Math.min(1, dt * 3);
+    a.y = groundY(g, a.x) - a.rowCur * ROW * g.s;
   }
 
   w.sparkAcc += dt * 26;
@@ -533,7 +541,8 @@ function drawAgent(ctx: C, a: Sim, g: Geo, selected: boolean, hovered: boolean, 
   ctx.save(); ctx.translate(a.x, a.y);
   ctx.fillStyle = "rgba(10,6,12,0.35)"; ctx.beginPath(); ctx.ellipse(0, 0, 10 * s, 2.6 * s, 0, 0, 7); ctx.fill();
   if (selected || hovered) { ctx.strokeStyle = selected ? "#ffd84a" : "rgba(255,255,255,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, 14 * s, 4 * s, 0, 0, 7); ctx.stroke(); }
-  ctx.scale(a.dir * s, s); ctx.translate(0, bob); ctx.scale(1 / Math.sqrt(sq), sq);
+  const sc = Math.max(0.6, 1 - 0.07 * a.rowCur);
+  ctx.scale(a.dir * s * sc, s * sc); ctx.translate(0, bob); ctx.scale(1 / Math.sqrt(sq), sq);
   const hipY = sit ? -5 : -11, legL = 11, shoulder = { x: 1 + slump * 2, y: hipY - 11 + slump * 2 }, head = { x: 1.5 + slump * 5, y: hipY - 19.5 + slump * 4 };
   const limb = (ox: number, oy: number, ang: number, len: number, color: string, wd: number) => {
     const ex = ox + Math.sin(ang) * len, ey = oy + Math.cos(ang) * len;
