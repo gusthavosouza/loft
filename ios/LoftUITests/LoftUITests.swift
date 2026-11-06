@@ -408,6 +408,26 @@ final class LoftUITests: XCTestCase {
         XCTAssertTrue(open.disappears(timeout: 5), "no Open interview without one")
     }
 
+    /// At the largest text size the answer field's icons keep their own space inside the question card.
+    func testInterviewAnswerIconsAtLargestTextSize() {
+        let app = openGrillChat(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let open = app.buttons["openInterview"]
+        XCTAssertTrue(open.appears(timeout: 5))
+        open.tap()
+        let card = any("grillCurrentQuestion", app)
+        XCTAssertTrue(card.appears(timeout: 5))
+        let field = any("grillAnswerField", app)
+        let save = app.buttons["grillSaveAnswer"].firstMatch, discuss = app.buttons["grillDiscuss"].firstMatch
+        app.swipeUp()
+        XCTAssertTrue(field.exists && save.exists && discuss.exists)
+        // A fixed 44 pt frame holds a glyph that is bigger than 44 pt here, so the glyphs drew over each other.
+        XCTAssertGreaterThan(min(save.frame.width, discuss.frame.width), 44, "the frames grow with the glyphs")
+        XCTAssertGreaterThanOrEqual(save.frame.minY, field.frame.maxY, "the icons go under the field")
+        XCTAssertFalse(save.frame.intersects(discuss.frame), "\(save.frame) overlaps \(discuss.frame)")
+        XCTAssertTrue(card.frame.contains(save.frame) && card.frame.contains(discuss.frame),
+                      "icons \(save.frame), \(discuss.frame) spill out of the card \(card.frame)")
+    }
+
     /// A dictated answer (the voice walk-through) still answers the question the voice is on and moves to the next.
     func testDictatedAnswerDuringARoundAnswersAndMovesOn() {
         let app = openGrillChat(["-fixture-dictation", "Monthly only"])
@@ -652,9 +672,13 @@ final class LoftUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No agents registered"].appears(timeout: 5))
     }
 
+    /// The connect screen with no saved address to prefill it: an empty `serverURL` in the arguments domain hides
+    /// whatever an earlier run saved, so the typed address never lands in the middle of an old one.
+    private static let onboardingLaunchArguments = ["-ui-onboarding", "-no-animations", "-no-speech", "-no-ai", "-serverURL", ""]
+
     func testOnboardingAsksForServer() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-onboarding", "-no-animations", "-no-speech", "-no-ai"]
+        app.launchArguments = Self.onboardingLaunchArguments
         app.launch()
         let field = app.textFields["serverAddressField"]
         XCTAssertTrue(field.appears(timeout: 5))
@@ -664,20 +688,26 @@ final class LoftUITests: XCTestCase {
         XCTAssertTrue(app.buttons["testConnection"].isEnabled)
     }
 
-    /// Spec #144: the demo address opens the app on sample data, with Loft-only and GitHub issues, and Exit leaves it.
-    func testTheDemoShowsIssuesAndLeaves() {
-        let app = XCUIApplication()
-        app.launchArguments = ["-ui-onboarding", "-no-animations", "-no-speech", "-no-ai"]
-        app.launch()
+    /// Types the demo address on the connect screen (launched with `onboardingLaunchArguments`).
+    private func enterDemo(_ app: XCUIApplication) {
         let field = app.textFields["serverAddressField"]
         XCTAssertTrue(field.appears(timeout: 5))
-        XCTAssertFalse(app.buttons["tryDemo"].exists, "no demo button: App Review types the demo address")
         field.tap()
-        // A saved address from another run would prefill the field.
-        if let v = field.value as? String, v.contains(".") { field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: v.count)) }
+        // Right after a launch the first tap can miss the focus.
+        if !app.keyboards.firstMatch.appears(timeout: 2) { field.tap() }
         field.typeText("demo-loft-dev.get-loft.com")
         app.buttons["saveServer"].tap()
         XCTAssertTrue(any("demoBanner", app).appears(timeout: 5))
+    }
+
+    /// Spec #144: the demo address opens the app on sample data, with Loft-only and GitHub issues, and Exit leaves it.
+    func testTheDemoShowsIssuesAndLeaves() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.onboardingLaunchArguments
+        app.launch()
+        XCTAssertTrue(app.textFields["serverAddressField"].appears(timeout: 5))
+        XCTAssertFalse(app.buttons["tryDemo"].exists, "no demo button: App Review types the demo address")
+        enterDemo(app)
         app.tabBars.buttons["Issues"].tap()
         XCTAssertTrue(text(containing: "loft#42", app).appears(timeout: 5), "a GitHub issue shows its mark")
         app.buttons["taskRow-Implement settings functionality"].firstMatch.tap()
@@ -694,6 +724,42 @@ final class LoftUITests: XCTestCase {
         XCTAssertTrue(text(containing: "3 of 4 endpoints", app).appears(timeout: 5), "a scripted answer, shown at once")
         app.buttons["exitDemo"].tap()
         XCTAssertTrue(app.textFields["serverAddressField"].appears(timeout: 5), "back to the connect screen")
+    }
+
+    /// #149: a relaunch starts outside the demo with none of its changes, and the full-screen Talk view has the
+    /// banner too, so Exit is one tap from there.
+    func testARelaunchResetsTheDemoAndExitWorksFromFullScreen() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.onboardingLaunchArguments
+        app.launch()
+        enterDemo(app)
+        // A change in the demo: a message to the Lead.
+        app.tabBars.buttons["Chat"].tap()
+        app.buttons["orchestratorConversation"].firstMatch.tap()
+        let composer = app.textFields["composerField"]
+        XCTAssertTrue(composer.appears(timeout: 5))
+        composer.tap()
+        composer.typeText("Kept only until relaunch")
+        app.buttons["sendButton"].tap()
+        XCTAssertTrue(text(containing: "Kept only until relaunch", app).appears(timeout: 5))
+
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.textFields["serverAddressField"].appears(timeout: 5), "a relaunch starts at the connect screen")
+        XCTAssertFalse(any("demoBanner", app).exists, "not in the demo")
+        enterDemo(app)
+        app.tabBars.buttons["Chat"].tap()
+        app.buttons["orchestratorConversation"].firstMatch.tap()
+        XCTAssertTrue(app.textFields["composerField"].appears(timeout: 5))
+        XCTAssertFalse(text(containing: "Kept only until relaunch", app).exists, "the demo starts fresh")
+
+        app.tabBars.buttons["Overview"].tap()
+        app.buttons["talkButton"].tap()
+        XCTAssertTrue(app.buttons["voiceClose"].appears(timeout: 5))
+        // The root's banner stays in the tree under the full screen, so tap where Exit shows rather than trust `exists`.
+        app.buttons["exitDemo"].firstMatch.tap()
+        XCTAssertTrue(app.textFields["serverAddressField"].appears(timeout: 5), "Exit from the Talk view")
+        XCTAssertFalse(any("demoBanner", app).exists)
     }
 
     func testAPermissionShowsItsRisksAndExplainsOnRequest() {

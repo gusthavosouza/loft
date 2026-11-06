@@ -64,10 +64,21 @@ function Campfire({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Crowd({ agents, width, state }: { agents: Agent[]; width: number; state: WorkerState }) {
+/** The workers of one panel, their cells sized to the width of this very box (so padding around it never counts). */
+function Crowd({ agents, state }: { agents: Agent[]; state: WorkerState }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    setWidth(el.clientWidth);
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const { cell } = layout(agents.length, width);
   return (
-    <div className="flex flex-wrap justify-center gap-y-1">
+    <div ref={box} className="flex flex-wrap justify-center gap-y-1">
       {agents.map((a) => (
         <Worker key={a.id} agent={a} state={state} size={cell} />
       ))}
@@ -96,33 +107,22 @@ export default function WorkersPage() {
     }, []),
   );
 
-  // The scene's width, so the cells are sized to fit it (a panel's padding and border take 26px).
-  const box = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(320);
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(Math.max(0, el.clientWidth - 26)));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [agents === null]);
-
   if (agents === null) return <div className="p-6 font-mono text-xs text-fg-3">Loading…</div>;
   const sorted = [...agents].sort((a, b) => a.name.localeCompare(b.name));
   const digging = sorted.filter((a) => workerState(a) === "digging");
   const resting = sorted.filter((a) => workerState(a) === "resting");
   return (
     <div className="h-full overflow-y-auto">
-      <div ref={box} className="mx-auto flex max-w-6xl flex-col gap-3 p-4 max-sm:px-3">
+      <div className="mx-auto flex max-w-6xl flex-col gap-3 p-4 max-sm:px-3">
         {!agents.length && <p className="p-6 text-center text-sm text-fg-3">No agents yet. Create one and its worker shows up here.</p>}
         {digging.length > 0 && (
           <Tunnel>
-            <Crowd agents={digging} width={width} state="digging" />
+            <Crowd agents={digging} state="digging" />
           </Tunnel>
         )}
         {agents.length > 0 && (
           <Campfire>
-            {resting.length ? <Crowd agents={resting} width={width} state="resting" /> : <p className="py-4 text-center text-xs text-fg-3">Everyone is at work.</p>}
+            {resting.length ? <Crowd agents={resting} state="resting" /> : <p className="py-4 text-center text-xs text-fg-3">Everyone is at work.</p>}
           </Campfire>
         )}
       </div>
