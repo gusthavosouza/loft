@@ -167,7 +167,12 @@ export default function WorkersPage() {
       const sa = w.agents.find((a) => a.id === w.selected);
       if (bubbleRef.current) {
         bubbleRef.current.style.display = sa ? "block" : "none";
-        if (sa) bubbleRef.current.style.transform = `translate(${Math.min(Math.max(sa.x, 110), g.W - 110)}px, ${Math.max(8, (sa.labelTop ?? sa.y - 46 * g.s) - 18)}px) translate(-50%, -100%)`;
+        if (sa) {
+          // above the worker's name tag, or below the worker when there is no room above it
+          const above = (sa.labelTop ?? sa.y - 46 * g.s) - 18, h = bubbleRef.current.offsetHeight;
+          const top = above - h < 8 ? Math.min(sa.y + 10, g.H - h - 8) : above - h;
+          bubbleRef.current.style.transform = `translate(${Math.min(Math.max(sa.x, 110), g.W - 110)}px, ${Math.max(8, top)}px) translate(-50%, 0)`;
+        }
       }
       uiT -= dt;
       if (uiT <= 0) {
