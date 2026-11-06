@@ -100,9 +100,11 @@ const workX = (g: Geo, n: number) => g.qL + (0.12 + 0.76 * ((n * 0.37) % 1)) * (
 const dropX = (g: Geo, n: number) => g.siteX + ((n % 5) - 2) * 12 * g.s;
 /** Camp spot n: alternating sides of the fire, closer packed when many agents share the camp. */
 function campX(g: Geo, n: number, total: number) {
-  const k = Math.floor(n / 2), side = n % 2 === 0 ? -1 : 1, span = (g.campR - g.campL) / 2;
-  const step = Math.min(0.17, 0.74 / Math.max(1, Math.ceil(total / 2) - 1));
-  return clamp(g.fireX + side * (0.24 + step * k) * span, g.campL + 8, g.campR - 4);
+  const k = Math.floor(n / 2), side = n % 2 === 0 ? -1 : 1, per = Math.ceil(total / 2);
+  // a crowd spreads wider than the camp (up to the site), about 11px apart
+  const span = Math.max((g.campR - g.campL) / 2, per * 11 * g.s + 10);
+  const step = Math.min(0.17, 0.74 / Math.max(1, per - 1));
+  return clamp(g.fireX + side * (0.24 + step * k) * span, g.campL + 8, Math.max(g.campR - 4, g.siteL - 16 * g.s));
 }
 const postX = (g: Geo, a: Sim) => (a.kind === "qa" ? g.siteL + 6 * g.s : g.siteR - (a.kind === "security" ? 22 : 6) * g.s) + (a.n % 3) * 7 * g.s;
 const patrolX = (g: Geo, k: number) => [g.siteL + 20 * g.s, g.siteX, g.siteR - 20 * g.s, g.siteX - 30 * g.s][k % 4];
