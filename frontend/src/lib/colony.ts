@@ -676,9 +676,10 @@ function drawLabels(ctx: C, g: Geo, w: World) {
     }
     placed.push({ x: a.x, w: tw, top });
     ctx.globalAlpha = on ? 1 : 0.82;
-    ctx.fillStyle = "rgba(14,12,26,0.78)"; rr(ctx, a.x - tw / 2, top - 15, tw, 14, 7); ctx.fill();
-    ctx.fillStyle = a.hat; ctx.beginPath(); ctx.arc(a.x - tw / 2 + 7, top - 8, 2.4, 0, 7); ctx.fill();
-    ctx.fillStyle = "#f3eee6"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(text, a.x - tw / 2 + 12, top - 7.5);
+    const lx = clamp(a.x, tw / 2 + 4, g.W - tw / 2 - 4); // the tag stays inside the canvas
+    ctx.fillStyle = "rgba(14,12,26,0.78)"; rr(ctx, lx - tw / 2, top - 15, tw, 14, 7); ctx.fill();
+    ctx.fillStyle = a.hat; ctx.beginPath(); ctx.arc(lx - tw / 2 + 7, top - 8, 2.4, 0, 7); ctx.fill();
+    ctx.fillStyle = "#f3eee6"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(text, lx - tw / 2 + 12, top - 7.5);
     ctx.globalAlpha = 1;
     if (w.selected === a.id) a.labelTop = top;
   }
