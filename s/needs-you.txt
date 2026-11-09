@@ -1,0 +1,6 @@
+delivery_stalled | Delivery stalled: Booking reminders 
+    Its run was lost when Loft restarted. Stopped at: building #1901 on Dineout Backend Dev and building #1902 on Dineout Dev 2.
+delivery_done | Delivery done: Offline mode 
+    Every ticket is done and its reviews passed: merge `spec/1` into `main`.
+delivery_merge | Merge "Offline mode" 
+    Its reviews passed: merge `spec/1` into `main`. Built by Dineout Backend Dev, Dineout Dev 2.
