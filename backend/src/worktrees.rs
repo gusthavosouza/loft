@@ -403,6 +403,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         .args(crate::repos::SAFE_GIT)
         .args(["-c", "maintenance.auto=false", "-c", "gc.auto=0"])
         .args(args)
+        .env("GIT_NO_LAZY_FETCH", "1")
         .output()
         .map_err(|e| format!("spawning git: {e}"))?;
     if !out.status.success() {
@@ -420,6 +421,7 @@ fn git_in(dir: &Path, args: &[&str], input: &str) -> Result<String, String> {
         .arg(dir)
         .args(crate::repos::SAFE_GIT)
         .args(args)
+        .env("GIT_NO_LAZY_FETCH", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -818,5 +820,45 @@ mod tests {
         let mirror = dir_of(&storage, MIRRORS, "loft");
         assert_eq!(run(&mirror, &["remote", "get-url", "origin"]).trim(), remote.to_string_lossy());
         assert!(!fs::read_to_string(mirror.join("config")).unwrap().contains("filter"));
+    }
+
+    #[test]
+    fn a_promisor_remote_an_agent_sets_is_never_fetched_from() {
+        let (storage, projects, ws, _remote) = setup();
+        let ran = storage.join("ran");
+        let base = storage.join(REPOS).join("loft");
+        let mine = worktree(&storage, &projects, &ws, "loft", "first", "").unwrap();
+        // A commit only the agent's workspace holds, and a branch of a Delivery pointing at it.
+        let objs = ws.join("objs");
+        fs::create_dir_all(&objs).unwrap();
+        let empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+        let out = Command::new("git").arg("-C").arg(&mine).env("GIT_OBJECT_DIRECTORY", &objs)
+            .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit-tree", empty_tree, "-m", "x"]).output().unwrap();
+        let commit = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(commit.len(), 40, "{}", String::from_utf8_lossy(&out.stderr));
+        run_alt(&base, &objs, &["update-ref", "refs/heads/evil", &commit]);
+
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writer = {
+            let (stop, base, cmd) = (stop.clone(), base.clone(), trap(&ran));
+            std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    for (k, v) in [("remote.evil.url", "/nowhere"), ("remote.evil.promisor", "true"), ("remote.evil.uploadpack", cmd.as_str())] {
+                        let _ = Command::new("git").arg("-C").arg(&base).args(["config", k, v]).output();
+                    }
+                }
+            })
+        };
+        for _ in 0..5 {
+            dev_line(&storage, &projects, &ws, "loft", "evil", "");
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        writer.join().unwrap();
+        assert!(!ran.exists(), "a command an agent set ran");
+    }
+
+    fn run_alt(dir: &Path, objs: &Path, args: &[&str]) {
+        let out = Command::new("git").arg("-C").arg(dir).env("GIT_ALTERNATE_OBJECT_DIRECTORIES", objs).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     }
 }
