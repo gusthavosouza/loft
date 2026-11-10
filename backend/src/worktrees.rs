@@ -79,6 +79,19 @@ pub fn worktree(storage: &Path, projects: &Path, ws: &Path, project: &str, branc
     Ok(path)
 }
 
+/// Deletes the workspace `ws` and prunes every base clone, so the worktrees it held don't keep their branches:
+/// another agent can then check those out again.
+pub fn remove_workspace(storage: &Path, ws: &Path) {
+    let _ = std::fs::remove_dir_all(ws);
+    let Ok(dirs) = std::fs::read_dir(storage.join(REPOS)) else { return };
+    for dir in dirs.flatten() {
+        let project = dir.file_name().to_string_lossy().replace("%2F", "/").replace("%25", "%");
+        let lock = lock(&project);
+        let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = git(&dir.path(), &["worktree", "prune"]);
+    }
+}
+
 /// The checker's `<project>-review` worktree in `ws`, detached at PR `pr`'s head as just fetched; and that SHA.
 /// No branch is checked out, so the PR's dev keeps its branch and any number of checkers see the same commit.
 pub fn review(storage: &Path, projects: &Path, ws: &Path, project: &str, pr: u64) -> Result<(PathBuf, String), String> {
@@ -294,6 +307,22 @@ mod tests {
         assert_eq!(worktree(&storage, &projects, &ws, "loft", "fix/one", "").unwrap(), one);
         // Loft rewrote the shared config on that call; the branch keeps its upstream.
         assert_eq!(run(&two, &["rev-parse", "--abbrev-ref", "@{upstream}"]).trim(), "origin/feat/x");
+    }
+
+    #[test]
+    fn a_deleted_workspace_s_branches_can_be_checked_out_again() {
+        let (storage, projects, ws, _) = setup();
+        worktree(&storage, &projects, &ws, "loft", "feat/x", "").unwrap();
+        worktree(&storage, &projects, &ws, "loft", "fix/new", "").unwrap();
+        remove_workspace(&storage, &ws);
+        assert!(!ws.exists());
+
+        let other = storage.join("b");
+        fs::create_dir_all(&other).unwrap();
+        assert_eq!(worktree(&storage, &projects, &other, "loft", "feat/x", "").unwrap(), other.join("loft-feat-x"));
+        assert_eq!(worktree(&storage, &projects, &other, "loft", "fix/new", "").unwrap(), other.join("loft-fix-new"));
+        let list = run(&storage.join(REPOS).join("loft"), &["worktree", "list"]);
+        assert!(!list.contains(&*ws.to_string_lossy()), "{list}");
     }
 
     #[test]

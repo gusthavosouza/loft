@@ -474,7 +474,8 @@ pub async fn delete_agent(State(state): State<AppState>, Path(id): Path<String>,
     crate::uploads::remove_all(&state, &id);
     agents::remove_agent_files(&state, &id);
     if q.purge_files {
-        let _ = std::fs::remove_dir_all(workspace(&state, &id));
+        let (storage, ws) = (state.cfg.storage_dir.clone(), workspace(&state, &id));
+        let _ = tokio::task::spawn_blocking(move || crate::worktrees::remove_workspace(&storage, &ws)).await;
     } else {
         // Its files stay: its clones' build output goes once they're idle.
         let (state, id) = (state.clone(), id.clone());
