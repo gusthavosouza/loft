@@ -129,12 +129,13 @@ fn base_tools() -> Value {
         },
         {
             "name": "worktree",
-            "description": "Your git worktree of one of the user's projects for one piece of work, in your workspace as `<project>-<branch>`. Loft keeps one base clone of each project for all agents, fetches it, and checks out `branch`: the existing one (local or on the remote, e.g. a PR's head branch) or a new one from `base`. Calling again for the same branch returns the same worktree. Returns its path.",
+            "description": "Your git worktree of one of the user's projects for one piece of work, in your workspace as `<project>-<branch>`. Loft keeps one base clone of each project for all agents, fetches it, and checks out `branch`: the existing one (local or on the remote, e.g. a PR's head branch) or a new one from `base`. Calling again for the same branch returns the same worktree. To check a pull request (tests, QA, security, review), pass `pr` instead of `branch`: you get your one `<project>-review` worktree, detached at that PR's head SHA as just fetched. Returns its path.",
             "inputSchema": { "type": "object", "properties": {
                 "project": { "type": "string", "description": "The project's folder name in the user's projects folder, e.g. `loft`" },
                 "branch": { "type": "string", "description": "The branch to work on, e.g. `fix/217-worktrees`" },
-                "base": { "type": "string", "description": "For a new branch: the remote branch to start from. Default: the remote's default branch." }
-            }, "required": ["project", "branch"] }
+                "base": { "type": "string", "description": "For a new branch: the remote branch to start from. Default: the remote's default branch." },
+                "pr": { "type": "integer", "description": "For checkers: the pull request to check out, detached at its head, in your review worktree" }
+            }, "required": ["project"] }
         },
         {
             "name": "set_pr_verdict",
@@ -364,7 +365,7 @@ async fn call_tool(state: &AppState, agent_id: &str, name: &str, args: Value) ->
             },
             _ => tool_error("agent not found"),
         },
-        "worktree" => match crate::worktrees::for_agent(state, agent_id, &s("project"), &s("branch"), &s("base")).await {
+        "worktree" => match crate::worktrees::for_agent(state, agent_id, &s("project"), &s("branch"), &s("base"), args["pr"].as_u64()).await {
             Ok(t) => text(t),
             Err(e) => tool_error(e),
         },

@@ -490,7 +490,8 @@ You are **{name}**{title}, an autonomous agent living inside Loft — the user's
 
 # Workspace
 - Your private workspace is `{ws}`. It is your current working directory. Put every file you create there: scripts, notes, scratch data, and worktrees of repositories.
-- The user's projects live in `{projects}`. Never edit them in place, and never `git clone` one: Loft keeps one base clone of each, shared by all agents, in `{repos}`. For each piece of work, call `mcp__loft__worktree` with the project and its branch: it returns your git worktree of it, `<project>-<branch>` in your workspace. Reuse it for follow-ups on the same branch, and never name a folder after a PR number. When the work is merged, `git worktree remove <path>` without `--force`; if git refuses because of uncommitted changes, leave it and say so in your reply.
+- The user's projects live in `{projects}`. Never edit them in place, and never `git clone` one: Loft keeps one base clone of each, shared by all agents, in `{repos}`. For each piece of work, call `mcp__loft__worktree` with the project and its branch: it returns your git worktree of it, `<project>-<branch>` in your workspace. Reuse it for follow-ups on the same branch, and never name a folder after a PR number. Before each build, run `git pull --ff-only` in your worktree. When the work is merged, `git worktree remove <path>` without `--force`; if git refuses because of uncommitted changes, leave it and say so in your reply.
+- To check a pull request (tests, QA, security, review), call `mcp__loft__worktree` with the project and `pr` before each review round: it fetches and returns your one `<project>-review` worktree, detached at the PR's head SHA. Check there, never commit there, confirm `git rev-parse HEAD` is that SHA, and name that SHA in your verdict.
 {team}- Keep a tidy workspace: a `notes/` folder for longer documents is a good idea.
 - When a repo you work on has `GLOSSARY.md` or `docs/adr/`, read them before you start and use the glossary's terms in code, docs and chat; respect the decisions the ADRs record.
 - Assign every GitHub issue you create to the user (`gh issue create --assignee @me`), unless the user explicitly says to assign no one or someone else.
@@ -1797,7 +1798,7 @@ pub(crate) mod tests {
         let p = system_prompt(&st, &crate::tasks::tests::agent(&st, "Worker"));
         let repos = st.cfg.storage_dir.join(crate::worktrees::REPOS);
         assert!(p.contains(&format!("never `git clone` one: Loft keeps one base clone of each, shared by all agents, in `{}`", repos.display())), "{p}");
-        for key in ["`mcp__loft__worktree`", "`<project>-<branch>`", "Reuse it for follow-ups on the same branch", "never name a folder after a PR number", "`git worktree remove <path>` without `--force`", "leave it and say so"] {
+        for key in ["`mcp__loft__worktree`", "`<project>-<branch>`", "Reuse it for follow-ups on the same branch", "never name a folder after a PR number", "`git worktree remove <path>` without `--force`", "leave it and say so", "run `git pull --ff-only` in your worktree", "`<project>-review` worktree, detached at the PR's head SHA", "confirm `git rev-parse HEAD` is that SHA, and name that SHA in your verdict", "never commit there"] {
             assert!(p.contains(key), "{key}: {p}");
         }
         assert!(!p.contains("clone it into your workspace"));
