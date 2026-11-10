@@ -1,12 +1,13 @@
 //! The sweep: deletes rebuildable build output (`target/`, `node_modules/`, `.build/`, `ios/build/`,
 //! `DerivedData/`, `.cargo-build/`) from the clones in agents' workspaces that haven't changed in 3 days, so
-//! they don't fill the disk. Source, git state and notes stay.
+//! they don't fill the disk. Source, git state and notes stay. A clone idle 7 days that can't lose anything
+//! (clean, every commit on a remote branch) and isn't the newest clone of its repo in the workspace goes whole.
 //!
 //! It runs once a day, before Loft restarts into an update, and on a workspace whose agent was deleted with its
 //! files kept. It skips running agents and agents with a live process (a dev server), never follows a symlink,
 //! and never removes anything outside the agents' folder (`agent-local-storage/`), so Loft's own checkout stays.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -18,6 +19,8 @@ use crate::state::AppState;
 
 /// A clone untouched this long loses its build output.
 const IDLE: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+/// A clone idle this long, clean and pushed, is removed unless it's its repo's newest in the workspace.
+const FINISHED: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// How deep in a workspace clones are looked for (`<workspace>/a/b/<clone>`).
 const DEPTH: usize = 3;
 /// How often the day's sweep runs.
@@ -81,17 +84,29 @@ pub fn sweep(storage: &Path, only: Option<&str>, skip: &HashSet<String>, now: Sy
 fn workspace(root: &Path, ws: &Path, now: SystemTime, r: &mut Report) {
     let mut clones = vec![];
     find_clones(ws, DEPTH, &mut clones);
-    let mut all_idle = true;
-    for clone in clones {
+    let mut found = vec![];
+    for clone in &clones {
         let mut builds = vec![];
-        let mut newest = git_time(&clone);
-        walk(&clone, &mut builds, &mut newest);
-        if now.duration_since(newest).unwrap_or_default() < IDLE {
+        let mut newest = git_time(clone);
+        walk(clone, &mut builds, &mut newest);
+        found.push((clone, builds, now.duration_since(newest).unwrap_or_default(), repo(clone)));
+    }
+    // Each repo's newest clone is the agent's working copy.
+    let mut least_idle: HashMap<&str, Duration> = HashMap::new();
+    for (_, _, idle, repo) in &found {
+        least_idle.entry(repo).and_modify(|d| *d = (*d).min(*idle)).or_insert(*idle);
+    }
+    let mut all_idle = true;
+    for (clone, builds, idle, repo) in &found {
+        let holds_clones = clones.iter().any(|c| c != *clone && c.starts_with(clone));
+        if *idle >= FINISHED && least_idle[repo.as_str()] < *idle && !holds_clones && finished(clone) {
+            remove_clone(root, clone, r);
+        } else if *idle >= IDLE {
+            for b in builds {
+                remove(root, b, r);
+            }
+        } else {
             all_idle = false;
-            continue;
-        }
-        for b in builds {
-            remove(root, &b, r);
         }
     }
     // Compiled dependencies all the workspace's clones share: kept while any of them is in use.
@@ -133,14 +148,18 @@ fn is_build(parent: &Path, name: &str) -> bool {
     }
 }
 
-/// Collects the clone's build folders and the newest change to anything else in it, stopping at nested clones.
+/// Collects the clone's build folders and the newest change to any other file in it, stopping at nested clones.
+/// Folders' own times don't count: emptying `frontend/node_modules` would make the clone look fresh.
 fn walk(dir: &Path, builds: &mut Vec<PathBuf>, newest: &mut SystemTime) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         // Not followed: a symlink's own metadata.
         let Ok(meta) = e.metadata() else { continue };
-        *newest = (*newest).max(meta.modified().unwrap_or(SystemTime::UNIX_EPOCH));
-        if !meta.is_dir() || name == ".git" {
+        if !meta.is_dir() {
+            *newest = (*newest).max(meta.modified().unwrap_or(SystemTime::UNIX_EPOCH));
+            continue;
+        }
+        if name == ".git" {
             continue;
         }
         let path = e.path();
@@ -165,6 +184,41 @@ fn git_time(clone: &Path) -> SystemTime {
         .filter_map(|f| dir.join(f).symlink_metadata().ok()?.modified().ok())
         .max()
         .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
+/// Runs git in `dir` without taking optional locks, so reading doesn't refresh the index; its output if it succeeded.
+fn git(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(crate::repos::SAFE_GIT)
+        .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .output()
+        .ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The repo a clone is of: its origin, or the clone itself when it has none.
+fn repo(clone: &Path) -> String {
+    git(clone, &["config", "--get", "remote.origin.url"]).filter(|u| !u.is_empty()).unwrap_or_else(|| clone.display().to_string())
+}
+
+/// Whether removing the clone loses nothing: no changes, no untracked files, every commit on a remote branch.
+/// A worktree's branches stay in its base clone, so only its HEAD counts there.
+fn finished(clone: &Path) -> bool {
+    let refs = if clone.join(".git").is_file() { "HEAD" } else { "--all" };
+    git(clone, &["status", "--porcelain", "--untracked-files=all"]).is_some_and(|s| s.is_empty())
+        && git(clone, &["rev-list", "-n1", refs, "--not", "--remotes"]).is_some_and(|s| s.is_empty())
+}
+
+/// Removes a whole clone; a worktree is also dropped from its base clone's list.
+fn remove_clone(root: &Path, clone: &Path, r: &mut Report) {
+    let base = clone.join(".git").is_file().then(|| git(clone, &["rev-parse", "--path-format=absolute", "--git-common-dir"])).flatten();
+    remove(root, clone, r);
+    if let Some(base) = base {
+        git(Path::new(&base), &["worktree", "prune"]);
+    }
 }
 
 /// Removes `path` when it is a real directory inside `root`, adding it and its size to the report.
@@ -327,6 +381,95 @@ mod tests {
         file(&ws.join("main/.git/worktrees/wt/HEAD"));
         fs::write(ws.join("wt/.git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
         assert!(git_time(&ws.join("wt")) > SystemTime::UNIX_EPOCH);
+    }
+
+    fn sh(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=T", "-c", "user.email=t@example.com"]).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// A repo with one commit, to clone from.
+    fn origin(dir: &Path) {
+        file(&dir.join("README.md"));
+        sh(dir, &["init", "-q", "-b", "main"]);
+        sh(dir, &["add", "."]);
+        sh(dir, &["commit", "-qm", "first"]);
+    }
+
+    fn git_clone(from: &Path, to: &Path) {
+        sh(from.parent().unwrap(), &["clone", "-q", from.to_str().unwrap(), to.to_str().unwrap()]);
+    }
+
+    /// A week and a day from now: every clone below is idle 7+ days.
+    fn week_later() -> SystemTime {
+        SystemTime::now() + Duration::from_secs(8 * 24 * 60 * 60)
+    }
+
+    #[test]
+    fn a_finished_clone_is_removed_and_one_that_could_lose_work_stays() {
+        let storage = temp();
+        let (src, other) = (storage.join(".src"), storage.join(".other"));
+        origin(&src);
+        origin(&other);
+        let ws = storage.join("a");
+        for c in ["done", "ahead", "changed", "untracked", "stashed"] {
+            git_clone(&src, &ws.join(c));
+        }
+        file(&ws.join("ahead/new.rs"));
+        sh(&ws.join("ahead"), &["add", "."]);
+        sh(&ws.join("ahead"), &["commit", "-qm", "unpushed"]);
+        fs::write(ws.join("changed/README.md"), "edited").unwrap();
+        file(&ws.join("untracked/notes.md"));
+        fs::write(ws.join("stashed/README.md"), "edited").unwrap();
+        sh(&ws.join("stashed"), &["stash", "-q"]);
+        // The only clone of its repo, and a folder that isn't a clone.
+        git_clone(&other, &ws.join("lone"));
+        file(&ws.join("notes/plan.md"));
+        age(&ws);
+        // The agent's working copy of `src`.
+        git_clone(&src, &ws.join("current"));
+
+        let r = sweep(&storage, None, &HashSet::new(), week_later());
+
+        assert!(!ws.join("done").exists(), "a clean, pushed clone stays");
+        assert_eq!(r.removed, vec![ws.join("done")]);
+        assert!(r.freed_bytes > 0);
+        for kept in ["ahead/new.rs", "changed/README.md", "untracked/notes.md", "stashed/README.md", "lone/README.md", "current/README.md", "notes/plan.md"] {
+            assert!(ws.join(kept).exists(), "{kept} removed");
+        }
+    }
+
+    #[test]
+    fn a_clone_idle_under_a_week_stays() {
+        let storage = temp();
+        let src = storage.join(".src");
+        origin(&src);
+        git_clone(&src, &storage.join("a/old"));
+        age(&storage.join("a"));
+        git_clone(&src, &storage.join("a/new"));
+        sweep(&storage, None, &HashSet::new(), SystemTime::now());
+        assert!(storage.join("a/old/README.md").exists());
+    }
+
+    #[test]
+    fn a_finished_worktree_is_removed_and_dropped_from_its_base_clone() {
+        let storage = temp();
+        let src = storage.join(".src");
+        origin(&src);
+        let base = storage.join(".repos/src");
+        git_clone(&src, &base);
+        let ws = storage.join("a");
+        sh(&base, &["worktree", "add", "-q", "-b", "x", ws.join("src-x").to_str().unwrap(), "origin/main"]);
+        age(&storage.join(".repos"));
+        age(&ws);
+        sh(&base, &["worktree", "add", "-q", "-b", "y", ws.join("src-y").to_str().unwrap(), "origin/main"]);
+
+        let r = sweep(&storage, None, &HashSet::new(), week_later());
+
+        assert_eq!(r.removed, vec![ws.join("src-x")]);
+        assert!(ws.join("src-y/README.md").exists(), "the newest worktree was removed");
+        let out = std::process::Command::new("git").arg("-C").arg(&base).args(["worktree", "list"]).output().unwrap();
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("src-x"), "the base clone still lists it");
     }
 
     #[tokio::test(flavor = "multi_thread")]
