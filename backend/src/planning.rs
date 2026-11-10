@@ -2425,7 +2425,7 @@ pub(crate) mod tests {
             let mut a = crate::tasks::tests::agent(&st, role);
             a.role = role.into();
             let p = crate::agents::system_prompt(&st, &a);
-            for gone in ["# Planning: implementation", "submit_ticket", "review_ticket", "Refs #", "spec branch", "`ticket/<N>-<slug>`", "and on how a ticket is implemented"] {
+            for gone in ["# Planning: implementation", "submit_ticket", "review_ticket", "Refs #", "Work on the spec branch", "`ticket/<N>-<slug>`", "and on how a ticket is implemented"] {
                 assert!(!p.contains(gone), "{role}'s prompt still has {gone:?}");
             }
             assert!(p.contains("override your standing instructions on how specs and tickets are written, labelled, linked and published"));

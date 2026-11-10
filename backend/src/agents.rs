@@ -489,9 +489,13 @@ You are **{name}**{title}, an autonomous agent living inside Loft — the user's
 {schedule}
 
 # Workspace
-- Your private workspace is `{ws}`. It is your current working directory. Put every file you create there: scripts, notes, scratch data, and worktrees of repositories.
-- The user's projects live in `{projects}`. Never edit them in place, and never `git clone` one: Loft keeps one base clone of each, shared by all agents, in `{repos}`. For each piece of work, call `mcp__loft__worktree` with the project and its branch: it returns your git worktree of it, `<project>-<branch>` in your workspace. A new worktree has no files: check it out with the command the tool returns. Reuse it for follow-ups on the same branch, and never name a folder after a PR number. Before each build, run `git pull --ff-only` in your worktree. When the work is merged, `git worktree remove <path>` without `--force`; if git refuses because of uncommitted changes, leave it and say so in your reply.
-- To check a pull request (tests, QA, security, review), call `mcp__loft__worktree` with the project and `pr` before each review round: it fetches the PR and returns your one `<project>-review` worktree and the command that moves it, detached at the PR's head SHA. Run that command, check there, never commit there, confirm `git rev-parse HEAD` is that SHA, and name that SHA in your verdict.
+- Your private workspace is `{ws}`. It is your current working directory. Put every file you create there: scripts, notes, scratch data, and worktrees or clones of repositories.
+- The user's projects live in `{projects}`. Never edit them in place. To work on one, clone it into your workspace (`git clone {projects}/<name>` or clone from its remote) and work on the clone. **Prefer a worktree:** Loft keeps one base clone of each project in `{repos}`, fetched from GitHub; clone only when `mcp__loft__worktree` can't serve the project (it isn't a git repo, or the tool fails), and say so. Never work inside the base clone.
+- When Loft hands you a ticket or a review, its message names your folder. Work there; Loft has already fetched and checked out the right code.
+- Building (Dev): your folder is `<project>-<branch>`, on your branch. Commit and push there, run `git pull --ff-only` before each build, and reuse it for the ticket's review rounds. Never commit to or push the default branch or the spec branch directly.
+- Checking (Reviewer, QA, Tester, Security): your folder is `<project>-review`, detached at the PR's head commit. Never commit there. Before you report, check `git rev-parse HEAD` equals the SHA in your verdict.
+- Work Loft didn't hand you: call `mcp__loft__worktree` with the project and the branch, or `pr` for a review. A new worktree has no files: check it out with the command the tool returns.
+- When your work is merged, `git worktree remove <path>` without `--force`; if git refuses because of uncommitted changes, leave it and say so.
 {team}- Keep a tidy workspace: a `notes/` folder for longer documents is a good idea.
 - When a repo you work on has `GLOSSARY.md` or `docs/adr/`, read them before you start and use the glossary's terms in code, docs and chat; respect the decisions the ADRs record.
 - Assign every GitHub issue you create to the user (`gh issue create --assignee @me`), unless the user explicitly says to assign no one or someone else.
@@ -1799,11 +1803,10 @@ pub(crate) mod tests {
         let st = crate::tasks::tests::state();
         let p = system_prompt(&st, &crate::tasks::tests::agent(&st, "Worker"));
         let repos = st.cfg.storage_dir.join(crate::worktrees::REPOS);
-        assert!(p.contains(&format!("never `git clone` one: Loft keeps one base clone of each, shared by all agents, in `{}`", repos.display())), "{p}");
-        for key in ["`mcp__loft__worktree`", "`<project>-<branch>`", "Reuse it for follow-ups on the same branch", "never name a folder after a PR number", "`git worktree remove <path>` without `--force`", "leave it and say so", "run `git pull --ff-only` in your worktree", "`<project>-review` worktree and the command that moves it, detached at the PR's head SHA", "check it out with the command the tool returns", "confirm `git rev-parse HEAD` is that SHA, and name that SHA in your verdict", "never commit there"] {
+        assert!(p.contains(&format!("clone it into your workspace (`git clone {}/<name>` or clone from its remote) and work on the clone. **Prefer a worktree:** Loft keeps one base clone of each project in `{}`", st.settings.boot().projects_dir.display(), repos.display())), "{p}");
+        for key in ["`mcp__loft__worktree`", "clone only when `mcp__loft__worktree` can't serve the project", "Never work inside the base clone", "its message names your folder", "your folder is `<project>-<branch>`", "run `git pull --ff-only` before each build", "reuse it for the ticket's review rounds", "Never commit to or push the default branch or the spec branch directly", "your folder is `<project>-review`, detached at the PR's head commit", "equals the SHA in your verdict", "or `pr` for a review", "`git worktree remove <path>` without `--force`", "leave it and say so"] {
             assert!(p.contains(key), "{key}: {p}");
         }
-        assert!(!p.contains("clone it into your workspace"));
     }
 
     #[test]

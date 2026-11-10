@@ -699,8 +699,26 @@ async fn begin(state: &AppState, d: &Delivery, n: i64, agent: &crate::db::Agent)
     .ok_or("The Delivery record couldn't be saved.")?;
     let t = d.ticket(n).ok_or("The ticket left the Delivery record.")?;
     let step = Step::Build { ticket: n, round: t.rounds };
-    crate::agents::wake_on_ticket(state, &agent.id, &ticket_key(&d, Some(n)), true, dev_brief(state, &d, t), wake_for(&d, step));
+    let brief = format!("{}{}", dev_brief(state, &d, t), dev_folder(state, &d, &agent.id).await);
+    crate::agents::wake_on_ticket(state, &agent.id, &ticket_key(&d, Some(n)), true, brief, wake_for(&d, step));
     Ok(())
+}
+
+/// The brief's last line naming the Dev's worktree on the Delivery's branch, fetched just now; nothing for a
+/// plan kept in Loft, whose branch is only in the project's own checkout.
+async fn dev_folder(state: &AppState, d: &Delivery, dev: &str) -> String {
+    if d.local {
+        return String::new();
+    }
+    format!("\n- {}", crate::worktrees::dev_folder(state, dev, &d.project, &d.branch, &d.base).await)
+}
+
+/// The same for a checker: its review worktree at the head of the PR it checks.
+async fn checker_folder(state: &AppState, d: &Delivery, checker: &str) -> String {
+    match d.pr.filter(|_| !d.local) {
+        Some(pr) => format!("\n- {}", crate::worktrees::checker_folder(state, checker, &d.project, pr as u64).await),
+        None => String::new(),
+    }
 }
 
 /// After a ticket closed: starts the next unblocked one on the team's Dev. A line for the reply.
@@ -906,7 +924,8 @@ async fn submit(state: &AppState, me: &crate::db::Agent, args: &Value) -> Result
     let t = d.ticket(n).expect("just saved");
     for (role, a) in &reviewers {
         let step = Step::Review { ticket: n, role: role.to_string(), round: t.rounds };
-        crate::agents::wake_on_ticket(state, &a.id, &ticket_key(&d, Some(n)), false, review_brief(state, &d, t, role), wake_for(&d, step));
+        let brief = format!("{}{}", review_brief(state, &d, t, role), checker_folder(state, &d, &a.id).await);
+        crate::agents::wake_on_ticket(state, &a.id, &ticket_key(&d, Some(n)), false, brief, wake_for(&d, step));
     }
     let names = reviewers.iter().map(|(r, a)| format!("{} ({})", a.name, crate::planning::role_label(r))).collect::<Vec<_>>().join(" and ");
     Ok(format!("Submitted {name}: {names} are reviewing it. Loft wakes you if they ask for changes, and closes it when they pass."))
@@ -1010,6 +1029,7 @@ async fn review(state: &AppState, me: &crate::db::Agent, args: &Value) -> Result
         arg = ticket_arg(&d, &t),
         branch = d.branch,
     );
+    let brief = format!("{brief}{}", dev_folder(state, &d, builder_id(&d, &t)).await);
     crate::agents::wake_on_ticket(state, builder_id(&d, &t), &ticket_key(&d, Some(n)), true, brief, wake_for(&d, Step::Build { ticket: n, round: rounds }));
     Ok(format!("Posted your changes on {on}.{labelled} The Dev is fixing {name} (round {rounds} of {MAX_ROUNDS})."))
 }

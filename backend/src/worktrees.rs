@@ -57,6 +57,56 @@ pub async fn for_agent(state: &AppState, agent_id: &str, project: &str, branch: 
     ))
 }
 
+/// The line that names the Dev's folder in a ticket's brief: its worktree of `project` on `branch`, made or
+/// reused from `origin/<base>` (the default branch when `base` is empty) as just fetched. Loft runs no git in
+/// the agent's folder (see the module docs), so a new one has no files and an old one is pulled by the Dev.
+pub async fn dev_folder(state: &AppState, agent_id: &str, project: &str, branch: &str, base: &str) -> String {
+    let storage = state.cfg.storage_dir.clone();
+    let projects = state.settings.boot().projects_dir.clone();
+    let ws = crate::agents::workspace(state, agent_id);
+    let (p, b, from) = (project.to_string(), branch.to_string(), base.to_string());
+    tokio::task::spawn_blocking(move || dev_line(&storage, &projects, &ws, &p, &b, &from)).await.unwrap_or_else(|e| e.to_string())
+}
+
+/// The line that names a checker's folder: its `<project>-review` worktree, with the PR's head fetched just now.
+pub async fn checker_folder(state: &AppState, agent_id: &str, project: &str, pr: u64) -> String {
+    let storage = state.cfg.storage_dir.clone();
+    let projects = state.settings.boot().projects_dir.clone();
+    let ws = crate::agents::workspace(state, agent_id);
+    let p = project.to_string();
+    tokio::task::spawn_blocking(move || checker_line(&storage, &projects, &ws, &p, pr)).await.unwrap_or_else(|e| e.to_string())
+}
+
+fn dev_line(storage: &Path, projects: &Path, ws: &Path, project: &str, branch: &str, base: &str) -> String {
+    match worktree(storage, projects, ws, project, branch, base) {
+        Ok(path) => {
+            let from = if base.trim().is_empty() { "HEAD" } else { base.trim() };
+            let next = if has_files(&path) {
+                "Run `git pull --ff-only` there before you build.".to_string()
+            } else {
+                format!("It has no files yet: run `git -C {} checkout --quiet {branch}` first.", path.display())
+            };
+            format!("Your folder: {}, on {branch} from origin/{from}, fetched just now. {next}", path.display())
+        }
+        Err(e) => format!("Loft couldn't prepare your folder ({e}): call `mcp__loft__worktree` with the project and the branch."),
+    }
+}
+
+fn checker_line(storage: &Path, projects: &Path, ws: &Path, project: &str, pr: u64) -> String {
+    match review(storage, projects, ws, project, pr) {
+        Ok((path, sha)) => format!(
+            "Your folder: {0}, detached at {sha} (PR #{pr}). Move it there with `git -C {0} checkout --quiet --detach {sha}`, check `git rev-parse HEAD` prints that SHA before you report, and never commit there.",
+            path.display()
+        ),
+        Err(e) => format!("Loft couldn't prepare your folder ({e}): call `mcp__loft__worktree` with the project and `pr` {pr}."),
+    }
+}
+
+/// Whether a worktree has files checked out: a new one made `--no-checkout` holds only its `.git` file.
+fn has_files(path: &Path) -> bool {
+    std::fs::read_dir(path).is_ok_and(|d| d.flatten().any(|e| e.file_name() != ".git"))
+}
+
 /// The worktree of `project` on `branch` in `ws`, made on first use, with no files checked out: the existing
 /// branch (local or on the remote), or a new one from `origin/<base>` (the remote's default branch when `base`
 /// is empty).
@@ -335,7 +385,13 @@ fn fetch(mirror: &Path, refspecs: &[&str]) -> Result<String, String> {
     }
     args.push("origin");
     args.extend(refspecs);
-    git(mirror, &args)
+    match git(mirror, &args) {
+        Err(e) if e.contains(".lock") || e.contains("cannot lock ref") => {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            git(mirror, &args)
+        }
+        r => r,
+    }
 }
 
 /// Runs git in `dir` with [`crate::repos::SAFE_GIT`] and no automatic maintenance (a fetch starts one, and its
@@ -614,6 +670,58 @@ mod tests {
         worktree(&storage, &projects, &ws, "work", "two", "").unwrap();
         assert!(storage.join(REPOS).join("work%2Fisa/.git").exists());
         assert!(storage.join(REPOS).join("work/.git").exists());
+    }
+
+    #[test]
+    fn briefs_name_the_dev_s_folder_and_the_checker_s_folder_at_the_pr_head() {
+        let (storage, projects, ws, remote) = setup();
+        // A project under another name: its folder is a symlink; and a nested one.
+        std::os::unix::fs::symlink(projects.join("loft"), projects.join("Laufey & Gustavo")).unwrap();
+        run(&projects, &["clone", "--quiet", &remote.to_string_lossy(), "dineout"]);
+        run(&projects.join("dineout"), &["clone", "--quiet", &remote.to_string_lossy(), "api"]);
+
+        let line = dev_line(&storage, &projects, &ws, "Laufey & Gustavo", "feat/x", "main");
+        let path = ws.join("Laufey & Gustavo-feat-x");
+        assert!(line.starts_with(&format!("Your folder: {}, on feat/x from origin/main, fetched just now.", path.display())), "{line}");
+        assert!(line.contains("It has no files yet") && line.contains("checkout --quiet feat/x"), "{line}");
+        // Reused for a review round: the Dev pulls.
+        run(&path, &["checkout", "--quiet", "feat/x"]);
+        fs::write(path.join("README"), "x").unwrap();
+        assert!(dev_line(&storage, &projects, &ws, "Laufey & Gustavo", "feat/x", "main").contains("Run `git pull --ff-only` there before you build."));
+        assert!(dev_line(&storage, &projects, &ws, "dineout/api", "one", "").contains(&format!("{}/dineout-api-one", ws.display())));
+
+        run(&path, &["commit", "--quiet", "--allow-empty", "-m", "work"]);
+        run(&path, &["push", "--quiet"]);
+        let head = run(&path, &["rev-parse", "HEAD"]).trim().to_string();
+        run(&remote, &["update-ref", "refs/pull/7/head", &head]);
+        let checker = storage.join("b");
+        fs::create_dir_all(&checker).unwrap();
+        let line = checker_line(&storage, &projects, &checker, "loft", 7);
+        assert!(line.starts_with(&format!("Your folder: {}, detached at {head} (PR #7).", checker.join("loft-review").display())), "{line}");
+        // The Dev on the branch and the checker on its SHA at once, and a missing PR says so.
+        assert!(checker_line(&storage, &projects, &checker, "loft", 99).contains("Loft couldn't prepare your folder"));
+        assert!(dev_line(&storage, &projects, &ws, "nope", "x", "").contains("Loft couldn't prepare your folder"));
+    }
+
+    #[test]
+    fn a_fetch_held_up_by_a_ref_lock_is_retried_once() {
+        let (storage, projects, ws, remote) = setup();
+        worktree(&storage, &projects, &ws, "loft", "feat/x", "").unwrap();
+        let head = run(&remote, &["rev-parse", "main"]).trim().to_string();
+        run(&remote, &["update-ref", "refs/pull/7/head", &head]);
+        let mirror = dir_of(&storage, MIRRORS, "loft");
+        fs::create_dir_all(mirror.join("refs/pull/7")).unwrap();
+        let lock = mirror.join("refs/pull/7/head.lock");
+        fs::write(&lock, "").unwrap();
+        let held = std::thread::spawn({
+            let lock = lock.clone();
+            move || {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                fs::remove_file(lock).unwrap();
+            }
+        });
+        assert_eq!(review(&storage, &projects, &ws, "loft", 7).unwrap().1, head);
+        held.join().unwrap();
     }
 
     #[test]
