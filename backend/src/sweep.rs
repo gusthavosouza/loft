@@ -186,7 +186,8 @@ fn git_time(clone: &Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-/// Runs git in `dir` without taking optional locks, so reading doesn't refresh the index; its output if it succeeded.
+/// Runs git in `dir` without taking optional locks, so reading doesn't refresh the index, and without fetching
+/// missing objects from a promisor remote, which runs that remote's transport; its output if it succeeded.
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
     let out = std::process::Command::new("git")
         .arg("-C")
@@ -194,6 +195,7 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
         .args(crate::repos::SAFE_GIT)
         .args(args)
         .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_NO_LAZY_FETCH", "1")
         .output()
         .ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -213,17 +215,34 @@ fn finished(clone: &Path) -> bool {
         && git(clone, &["rev-list", "-n1", refs, "--not", "--remotes"]).is_some_and(|s| s.is_empty())
 }
 
-/// Whether `git status` in the clone runs no command its own config sets: no filter drivers, and no submodules,
-/// which status enters with their own config. The agent owns that config, and the sweep runs as Loft.
-/// The user's global and system config are theirs, so a git-lfs filter there doesn't count.
+/// Whether `git status` in the clone runs no command its own config sets. The agent owns that config, and the
+/// sweep runs as Loft, so a clone whose config has any key outside [`plain_key`] stays (filter drivers, promisor
+/// remotes, ssh commands and whatever comes next), and so does one with submodules, which status enters with
+/// their own config. The user's global and system config are theirs, so a git-lfs filter there doesn't count.
 fn status_runs_nothing(clone: &Path) -> bool {
     let repo_key = |l: &str| match l.split_once('\t') {
-        Some(("local" | "worktree", k)) => k.starts_with("filter.") || k.starts_with("submodule."),
+        Some(("local" | "worktree", k)) => !plain_key(k),
         _ => false,
     };
     git(clone, &["config", "--list", "--includes", "--name-only", "--show-scope"]).is_some_and(|keys| !keys.lines().any(repo_key))
         && !clone.join(".gitmodules").exists()
         && git(clone, &["ls-files", "--stage"]).is_some_and(|s| !s.lines().any(|l| l.starts_with("160000 ")))
+}
+
+/// A config key `git clone` or Loft's base clones set, which no git command turns into a command to run.
+fn plain_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    let Some((section, rest)) = key.split_once('.') else { return false };
+    let name = rest.rsplit_once('.').map_or(rest, |(_, n)| n);
+    match section {
+        // `core.hookspath` is Loft's own on base clones, and the sweep turns hooks off anyway.
+        "core" => !rest.contains('.') && matches!(name, "repositoryformatversion" | "filemode" | "bare" | "logallrefupdates" | "ignorecase" | "precomposeunicode" | "hookspath"),
+        // `gh-resolved` is what `gh` records for the default repo.
+        "remote" => rest.contains('.') && matches!(name, "url" | "fetch" | "gh-resolved"),
+        "branch" => rest.contains('.') && matches!(name, "remote" | "merge"),
+        "user" => !rest.contains('.') && matches!(name, "name" | "email"),
+        _ => false,
+    }
 }
 
 /// Removes a whole clone; a worktree is also dropped from its base clone's list.
@@ -479,6 +498,46 @@ mod tests {
         assert!(!marker.exists(), "the clone's filter ran");
         assert!(!status_runs_nothing(&ws.join("sub")), "a clone with a submodule counts as safe");
         assert!(r.removed.is_empty(), "removed {:?}", r.removed);
+    }
+
+    #[test]
+    fn a_clone_with_a_promisor_remote_stays_and_runs_nothing() {
+        let storage = temp();
+        let src = storage.join(".src");
+        origin(&src);
+        let ws = storage.join("a");
+        let evil = ws.join("evil");
+        git_clone(&src, &evil);
+        // A commit the clone doesn't have, for status to lazy-fetch.
+        file(&src.join("new.md"));
+        sh(&src, &["add", "."]);
+        sh(&src, &["commit", "-qm", "second"]);
+        let head = std::process::Command::new("git").arg("-C").arg(&src).args(["rev-parse", "HEAD"]).output().unwrap();
+        let marker = storage.join("PWNED");
+        sh(&evil, &["config", "extensions.partialClone", "evil"]);
+        sh(&evil, &["config", "remote.evil.promisor", "true"]);
+        sh(&evil, &["config", "remote.evil.url", src.to_str().unwrap()]);
+        sh(&evil, &["config", "remote.evil.uploadpack", &format!("sh -c 'echo ran >> {}; exit 1' #", marker.display())]);
+        fs::write(evil.join(".git/refs/heads/main"), &head.stdout).unwrap();
+        age(&ws);
+        git_clone(&src, &ws.join("current"));
+
+        // Status and rev-list alone, without the config check, fetch nothing either.
+        assert!(git(&evil, &["status", "--porcelain"]).is_none());
+        let r = sweep(&storage, None, &HashSet::new(), week_later());
+
+        assert!(!marker.exists(), "the promisor remote's command ran");
+        assert!(r.removed.is_empty(), "removed {:?}", r.removed);
+    }
+
+    #[test]
+    fn only_keys_that_run_nothing_count_as_plain() {
+        for k in ["core.repositoryformatversion", "core.ignoreCase", "remote.origin.url", "remote.my.fork.fetch", "branch.main.merge", "user.email"] {
+            assert!(plain_key(k), "{k}");
+        }
+        for k in ["core.sshCommand", "core.fsmonitor", "core.x.bare", "remote.origin.uploadpack", "remote.origin.promisor", "remote.url", "extensions.partialclone", "filter.x.clean", "submodule.a.url", "include.path", "protocol.ext.allow", "user.x.name"] {
+            assert!(!plain_key(k), "{k}");
+        }
     }
 
     #[test]
