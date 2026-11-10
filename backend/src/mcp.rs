@@ -128,6 +128,15 @@ fn base_tools() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
+            "name": "worktree",
+            "description": "Your git worktree of one of the user's projects for one piece of work, in your workspace as `<project>-<branch>`. Loft keeps one base clone of each project for all agents, fetches it, and checks out `branch`: the existing one (local or on the remote, e.g. a PR's head branch) or a new one from `base`. Calling again for the same branch returns the same worktree. Returns its path.",
+            "inputSchema": { "type": "object", "properties": {
+                "project": { "type": "string", "description": "The project's folder name in the user's projects folder, e.g. `loft`" },
+                "branch": { "type": "string", "description": "The branch to work on, e.g. `fix/217-worktrees`" },
+                "base": { "type": "string", "description": "For a new branch: the remote branch to start from. Default: the remote's default branch." }
+            }, "required": ["project", "branch"] }
+        },
+        {
             "name": "set_pr_verdict",
             "description": "For a reviewer (tests, QA or security checker): set your verdict on a pull request as a GitHub label (tests:green / tests:failing, qa:passed / qa:failed, security:passed / security:findings). One call sets the label and removes its opposite. `sha` is the head commit you checked; a new commit clears the passed labels, so check again. Only reviewer agents of the project that opened the PR may.",
             "inputSchema": { "type": "object", "properties": {
@@ -354,6 +363,10 @@ async fn call_tool(state: &AppState, agent_id: &str, name: &str, args: Value) ->
                 Err(e) => tool_error(e),
             },
             _ => tool_error("agent not found"),
+        },
+        "worktree" => match crate::worktrees::for_agent(state, agent_id, &s("project"), &s("branch"), &s("base")).await {
+            Ok(t) => text(t),
+            Err(e) => tool_error(e),
         },
         "set_pr_verdict" => match state.db.get_agent(agent_id) {
             Ok(Some(me)) => match s("verdict").as_str() {

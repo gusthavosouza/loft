@@ -40,6 +40,7 @@ mod updater;
 mod uploads;
 mod voice;
 mod usage;
+mod worktrees;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

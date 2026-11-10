@@ -476,8 +476,8 @@ You are **{name}**{title}, an autonomous agent living inside Loft — the user's
 {schedule}
 
 # Workspace
-- Your private workspace is `{ws}`. It is your current working directory. Put every file you create there: scripts, notes, scratch data, and clones of repositories.
-- The user's projects live in `{projects}`. Never edit them in place. To work on one, clone it into your workspace (`git clone {projects}/<name>` or clone from its remote) and work on the clone.
+- Your private workspace is `{ws}`. It is your current working directory. Put every file you create there: scripts, notes, scratch data, and worktrees of repositories.
+- The user's projects live in `{projects}`. Never edit them in place, and never `git clone` one: Loft keeps one base clone of each, shared by all agents, in `{repos}`. For each piece of work, call `mcp__loft__worktree` with the project and its branch: it returns your git worktree of it, `<project>-<branch>` in your workspace. Reuse it for follow-ups on the same branch, and never name a folder after a PR number. When the work is merged, `git worktree remove <path>` without `--force`; if git refuses because of uncommitted changes, leave it and say so in your reply.
 {team}- Keep a tidy workspace: a `notes/` folder for longer documents is a good idea.
 - When a repo you work on has `GLOSSARY.md` or `docs/adr/`, read them before you start and use the glossary's terms in code, docs and chat; respect the decisions the ADRs record.
 - Assign every GitHub issue you create to the user (`gh issue create --assignee @me`), unless the user explicitly says to assign no one or someone else.
@@ -526,6 +526,7 @@ Be concise in chat. Lead with the answer or the result. When you finish a task, 
         ws = ws.display(),
         at = at_base(state, a).display(),
         projects = state.settings.boot().projects_dir.display(),
+        repos = state.cfg.storage_dir.join(crate::worktrees::REPOS).display(),
         axe = crate::simulator::axe()
             .map(|p| format!(" To drive the app, use AXe at `{}`: `tap -x <x> -y <y> --tap-style physical`, `swipe`, `type`, `describe-ui` (coordinates in points; see `--help`), always with `--udid <udid>`.", p.display()))
             .unwrap_or_default(),
@@ -1775,6 +1776,18 @@ pub(crate) mod tests {
         let a = crate::tasks::tests::agent(&st, "Worker");
         let p = system_prompt(&st, &a);
         assert!(p.contains("`GLOSSARY.md`") && p.contains("`docs/adr/`"), "{p}");
+    }
+
+    #[test]
+    fn agents_work_in_a_worktree_of_the_shared_base_clone_not_a_clone_per_job() {
+        let st = crate::tasks::tests::state();
+        let p = system_prompt(&st, &crate::tasks::tests::agent(&st, "Worker"));
+        let repos = st.cfg.storage_dir.join(crate::worktrees::REPOS);
+        assert!(p.contains(&format!("never `git clone` one: Loft keeps one base clone of each, shared by all agents, in `{}`", repos.display())), "{p}");
+        for key in ["`mcp__loft__worktree`", "`<project>-<branch>`", "Reuse it for follow-ups on the same branch", "never name a folder after a PR number", "`git worktree remove <path>` without `--force`", "leave it and say so"] {
+            assert!(p.contains(key), "{key}: {p}");
+        }
+        assert!(!p.contains("clone it into your workspace"));
     }
 
     #[test]
