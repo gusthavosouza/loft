@@ -208,8 +208,22 @@ fn repo(clone: &Path) -> String {
 /// A worktree's branches stay in its base clone, so only its HEAD counts there.
 fn finished(clone: &Path) -> bool {
     let refs = if clone.join(".git").is_file() { "HEAD" } else { "--all" };
-    git(clone, &["status", "--porcelain", "--untracked-files=all"]).is_some_and(|s| s.is_empty())
+    status_runs_nothing(clone)
+        && git(clone, &["status", "--porcelain", "--untracked-files=all"]).is_some_and(|s| s.is_empty())
         && git(clone, &["rev-list", "-n1", refs, "--not", "--remotes"]).is_some_and(|s| s.is_empty())
+}
+
+/// Whether `git status` in the clone runs no command its own config sets: no filter drivers, and no submodules,
+/// which status enters with their own config. The agent owns that config, and the sweep runs as Loft.
+/// The user's global and system config are theirs, so a git-lfs filter there doesn't count.
+fn status_runs_nothing(clone: &Path) -> bool {
+    let repo_key = |l: &str| match l.split_once('\t') {
+        Some(("local" | "worktree", k)) => k.starts_with("filter.") || k.starts_with("submodule."),
+        _ => false,
+    };
+    git(clone, &["config", "--list", "--includes", "--name-only", "--show-scope"]).is_some_and(|keys| !keys.lines().any(repo_key))
+        && !clone.join(".gitmodules").exists()
+        && git(clone, &["ls-files", "--stage"]).is_some_and(|s| !s.lines().any(|l| l.starts_with("160000 ")))
 }
 
 /// Removes a whole clone; a worktree is also dropped from its base clone's list.
@@ -437,6 +451,34 @@ mod tests {
         for kept in ["ahead/new.rs", "changed/README.md", "untracked/notes.md", "stashed/README.md", "lone/README.md", "current/README.md", "notes/plan.md"] {
             assert!(ws.join(kept).exists(), "{kept} removed");
         }
+    }
+
+    #[test]
+    fn a_clone_with_a_filter_driver_or_a_submodule_stays_and_runs_nothing() {
+        let storage = temp();
+        let src = storage.join(".src");
+        origin(&src);
+        fs::write(src.join(".gitattributes"), "* filter=x\n").unwrap();
+        sh(&src, &["add", "."]);
+        sh(&src, &["commit", "-qm", "attrs"]);
+        let ws = storage.join("a");
+        git_clone(&src, &ws.join("filtered"));
+        git_clone(&src, &ws.join("sub"));
+        let marker = storage.join("PWNED");
+        sh(&ws.join("filtered"), &["config", "filter.x.clean", &format!("sh -c 'echo ran >> {}; cat'", marker.display())]);
+        let head = std::process::Command::new("git").arg("-C").arg(&src).args(["rev-parse", "HEAD"]).output().unwrap();
+        let gitlink = format!("160000,{},lib", String::from_utf8_lossy(&head.stdout).trim());
+        sh(&ws.join("sub"), &["update-index", "--add", "--cacheinfo", &gitlink]);
+        age(&ws);
+        // Same content, newer time: status would run the clean filter on it.
+        fs::write(ws.join("filtered/README.md"), "x").unwrap();
+        git_clone(&src, &ws.join("current"));
+
+        let r = sweep(&storage, None, &HashSet::new(), week_later());
+
+        assert!(!marker.exists(), "the clone's filter ran");
+        assert!(!status_runs_nothing(&ws.join("sub")), "a clone with a submodule counts as safe");
+        assert!(r.removed.is_empty(), "removed {:?}", r.removed);
     }
 
     #[test]
