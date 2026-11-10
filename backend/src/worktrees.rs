@@ -6,8 +6,11 @@
 //! worktrees write into their base repo's `.git`. Its `origin` is the project's remote, so agents push there.
 //! It has no branch of its own and no checkout, so any branch can be checked out in a worktree.
 //!
-//! Every agent's worktree writes to the base clone's shared `.git/config`, so Loft never trusts it: each call
-//! rewrites it from what Loft knows (the project's remote, hooks off) before running git there.
+//! Every agent's worktree writes to the base clone's shared `.git/config`, at any moment, so Loft runs nothing
+//! there that a config key can turn into a command: no fetch, no checkout, no status, and no git at all in an
+//! agent's workspace. Loft fetches into its own mirror of each project, `<storage>/.mirrors/<project>`, which
+//! no agent's git writes to; the base clone borrows the mirror's objects (git alternates) and Loft copies its
+//! refs over. Worktrees are made without files: the agent checks them out itself, with its own permissions.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,11 +21,17 @@ use crate::state::AppState;
 /// The base clones' folder in the agents' folder. A dot folder, so the sweep doesn't take it for a workspace.
 pub const REPOS: &str = ".repos";
 
+/// Loft's own mirrors of the projects, which agents' git never writes to.
+const MIRRORS: &str = ".mirrors";
+
+/// The refs Loft copies from a project's mirror to its base clone.
+const SHARED_REFS: [&str; 2] = ["refs/remotes/origin/", "refs/pull/"];
+
 /// One clone, fetch or worktree change per project at a time: two agents asking for a new project clone it once.
 static LOCKS: Mutex<Vec<(String, Arc<Mutex<()>>)>> = Mutex::new(Vec::new());
 
 /// The `worktree` tool: `agent`'s worktree of `project` on `branch`, made from `base` when the branch is new;
-/// or, with `pr`, its review worktree detached at that PR's head.
+/// or, with `pr`, its review worktree, for the agent to move to that PR's head.
 pub async fn for_agent(state: &AppState, agent_id: &str, project: &str, branch: &str, base: &str, pr: Option<u64>) -> Result<String, String> {
     let storage = state.cfg.storage_dir.clone();
     let projects = state.settings.boot().projects_dir.clone();
@@ -33,21 +42,24 @@ pub async fn for_agent(state: &AppState, agent_id: &str, project: &str, branch: 
             .await
             .map_err(|e| e.to_string())??;
         return Ok(format!(
-            "Your review worktree is `{}`, detached at PR #{n}'s head `{sha}`. Check that `git -C {0} rev-parse HEAD` is `{sha}` and name that SHA in your verdict. Never commit there; call this again for each review round.",
+            "Your review worktree is `{}`. Move it to PR #{n}'s head with `git -C {0} checkout --quiet --detach {sha}`; then `git -C {0} status --short` must print nothing and `git -C {0} rev-parse HEAD` must print `{sha}`. Name that SHA in your verdict. Never commit there; call this again for each review round.",
             path.display()
         ));
     }
+    let shown = branch.trim().to_string();
     let path = tokio::task::spawn_blocking(move || worktree(&storage, &projects, &ws, &project, &branch, &base))
         .await
         .map_err(|e| e.to_string())??;
     Ok(format!(
-        "Your worktree is `{}`: work, commit and push there, and use it again for this branch. Run `git pull --ff-only` there before each build. When the work is merged, run `git worktree remove {0}` (never `--force`).",
-        path.display()
+        "Your worktree is `{}`: work, commit and push there, and use it again for this branch. A new one has no files yet: run `git -C {0} checkout --quiet {branch}` first. Run `git pull --ff-only` there before each build. When the work is merged, run `git worktree remove {0}` (never `--force`).",
+        path.display(),
+        branch = shown
     ))
 }
 
-/// The worktree of `project` on `branch` in `ws`, made on first use: the existing branch (local or on the
-/// remote), or a new one from `origin/<base>` (the remote's default branch when `base` is empty).
+/// The worktree of `project` on `branch` in `ws`, made on first use, with no files checked out: the existing
+/// branch (local or on the remote), or a new one from `origin/<base>` (the remote's default branch when `base`
+/// is empty).
 pub fn worktree(storage: &Path, projects: &Path, ws: &Path, project: &str, branch: &str, base: &str) -> Result<PathBuf, String> {
     let branch = branch.trim();
     if branch.is_empty() || branch.starts_with('-') || git(ws.parent().unwrap_or(ws), &["check-ref-format", "--branch", branch]).is_err() {
@@ -60,21 +72,21 @@ pub fn worktree(storage: &Path, projects: &Path, ws: &Path, project: &str, branc
     let (project, src) = source(storage, projects, project)?;
     let lock = lock(&project);
     let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let repo = base_clone(storage, &src, &project)?;
+    let repo = base_clone(storage, &mirror(storage, &src, &project)?, &project)?;
     let path = ws.join(format!("{}-{}", project.replace('/', "-"), branch.replace('/', "-")));
     if path.exists() {
-        return match git(&path, &["symbolic-ref", "--short", "HEAD"]) {
-            Ok(head) if head.trim() == branch && path.join(".git").is_file() => Ok(path),
+        return match listed(&repo, &path)? {
+            Some(head) if head == format!("branch refs/heads/{branch}") => Ok(path),
             _ => Err(format!("`{}` exists and isn't your worktree of `{branch}`", path.display())),
         };
     }
     let has = |r: &str| git(&repo, &["rev-parse", "--verify", "--quiet", r]).is_ok();
     let p = path.to_string_lossy();
     if has(&format!("refs/heads/{branch}")) || has(&format!("refs/remotes/origin/{branch}")) {
-        git(&repo, &["worktree", "add", &p, branch])?;
+        git(&repo, &["worktree", "add", "--no-checkout", &p, branch])?;
     } else {
         let from = if base.is_empty() { "origin/HEAD".to_string() } else { format!("origin/{base}") };
-        git(&repo, &["worktree", "add", "-b", branch, &p, &from])?;
+        git(&repo, &["worktree", "add", "--no-checkout", "-b", branch, &p, &from])?;
     }
     Ok(path)
 }
@@ -92,30 +104,42 @@ pub fn remove_workspace(storage: &Path, ws: &Path) {
     }
 }
 
-/// The checker's `<project>-review` worktree in `ws`, detached at PR `pr`'s head as just fetched; and that SHA.
-/// No branch is checked out, so the PR's dev keeps its branch and any number of checkers see the same commit.
+/// The checker's `<project>-review` worktree in `ws`, made detached without files on first use; and PR `pr`'s
+/// head as just fetched, for the checker to move it to. No branch is checked out, so the PR's dev keeps its
+/// branch and any number of checkers see the same commit.
 pub fn review(storage: &Path, projects: &Path, ws: &Path, project: &str, pr: u64) -> Result<(PathBuf, String), String> {
     let (project, src) = source(storage, projects, project)?;
     let lock = lock(&project);
     let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let repo = base_clone(storage, &src, &project)?;
+    let mirror = mirror(storage, &src, &project)?;
     let head = format!("refs/pull/{pr}/head");
-    fetch(&repo, &[&format!("+{head}:{head}")])?;
-    let sha = git(&repo, &["rev-parse", "--verify", &format!("{head}^{{commit}}")])?.trim().to_string();
+    fetch(&mirror, &[&format!("+{head}:{head}")])?;
+    let sha = git(&mirror, &["rev-parse", "--verify", &format!("{head}^{{commit}}")])?.trim().to_string();
+    let repo = base_clone(storage, &mirror, &project)?;
     let path = ws.join(format!("{}-review", project.replace('/', "-")));
     if !path.exists() {
-        git(&repo, &["worktree", "add", "--detach", &path.to_string_lossy(), &sha])?;
+        git(&repo, &["worktree", "add", "--no-checkout", "--detach", &path.to_string_lossy(), &sha])?;
         return Ok((path, sha));
     }
-    if !path.join(".git").is_file() || git(&path, &["symbolic-ref", "-q", "HEAD"]).is_ok() {
-        return Err(format!("`{}` exists and isn't your review worktree (one detached, with no branch)", path.display()));
+    match listed(&repo, &path)? {
+        Some(head) if head == "detached" => Ok((path, sha)),
+        _ => Err(format!("`{}` exists and isn't your review worktree (one detached, with no branch)", path.display())),
     }
-    let changes = git(&path, &["status", "--porcelain", "--untracked-files=all"])?;
-    if !changes.trim().is_empty() {
-        return Err(format!("`{}` has changes; checkers never change it. Clean it up first:\n{changes}", path.display()));
-    }
-    git(&path, &["checkout", "--quiet", "--detach", &sha])?;
-    Ok((path, sha))
+}
+
+/// How the base clone lists the worktree at `path` (`branch refs/heads/<name>` or `detached`); `None` when
+/// `path` isn't one of its worktrees. Read from the base clone, so no git runs in the agent's folder.
+fn listed(repo: &Path, path: &Path) -> Result<Option<String>, String> {
+    let Ok(path) = path.canonicalize() else { return Ok(None) };
+    let list = git(repo, &["worktree", "list", "--porcelain"])?;
+    Ok(list.split("\n\n").find_map(|entry| {
+        let mut lines = entry.lines();
+        let at = lines.next()?.strip_prefix("worktree ")?;
+        if Path::new(at).canonicalize().ok()? != path {
+            return None;
+        }
+        lines.find(|l| l.starts_with("branch ") || *l == "detached").map(str::to_string)
+    }))
 }
 
 /// The project's name and its folder in `projects`: never an agent's workspace (an agent can make a repo there
@@ -144,40 +168,106 @@ fn lock(project: &str) -> Arc<Mutex<()>> {
     l
 }
 
-/// Where `project`'s base clone lives: one folder per project, `/` escaped, so `work` and `work/isa` don't nest.
-fn base_dir(storage: &Path, project: &str) -> PathBuf {
-    storage.join(REPOS).join(project.replace('%', "%25").replace('/', "%2F"))
+/// `project`'s folder in `dir`: one per project, `/` escaped, so `work` and `work/isa` don't nest.
+fn dir_of(storage: &Path, dir: &str, project: &str) -> PathBuf {
+    storage.join(dir).join(project.replace('%', "%25").replace('/', "%2F"))
 }
 
-/// `project`'s base clone, cloned from `src` on first use; its config rewritten and fetched every time.
-fn base_clone(storage: &Path, src: &Path, project: &str) -> Result<PathBuf, String> {
-    let repo = base_dir(storage, project);
+/// Where `project`'s base clone lives.
+fn base_dir(storage: &Path, project: &str) -> PathBuf {
+    dir_of(storage, REPOS, project)
+}
+
+/// `project`'s mirror, a bare clone of `src` made on first use, following the project's remote, fetched every
+/// time. Only Loft writes to it, so its config is Loft's alone.
+fn mirror(storage: &Path, src: &Path, project: &str) -> Result<PathBuf, String> {
+    let mirror = dir_of(storage, MIRRORS, project);
     // The project's remote, or the project itself when it has none.
     let url = git(src, &["remote", "get-url", "origin"]).map(|u| u.trim().to_string()).unwrap_or_else(|_| src.to_string_lossy().into_owned());
     if url.is_empty() || url.starts_with('-') {
         return Err(format!("`{project}`'s remote `{url}` isn't one Loft fetches"));
     }
+    let new = !mirror.join("HEAD").exists();
+    if new {
+        std::fs::create_dir_all(mirror.parent().unwrap_or(storage)).map_err(|e| e.to_string())?;
+        // A local clone is quick and shares objects; then it follows the project's remote, not the user's checkout.
+        git(storage, &["clone", "--quiet", "--bare", "--", &src.to_string_lossy(), &mirror.to_string_lossy()])?;
+        git(&mirror, &["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"])?;
+        // Base clones borrow its objects, so it never prunes one.
+        git(&mirror, &["config", "gc.pruneExpire", "never"])?;
+    }
+    git(&mirror, &["config", "remote.origin.url", &url])?;
+    fetch(&mirror, &[])?;
+    if new {
+        git(&mirror, &["remote", "set-head", "origin", "--auto"])?;
+    }
+    Ok(mirror)
+}
+
+/// `project`'s base clone, made on first use with `mirror`'s objects, no branch and no checkout, so
+/// worktrees can check out any branch. Every time: the mirror's refs are copied over, and the config
+/// rewritten so agents push to the project's remote.
+fn base_clone(storage: &Path, mirror: &Path, project: &str) -> Result<PathBuf, String> {
+    let repo = base_dir(storage, project);
     let new = !repo.join(".git").exists();
     if new {
-        std::fs::create_dir_all(repo.parent().unwrap_or(storage)).map_err(|e| e.to_string())?;
-        // A local clone is quick and shares objects; then it follows the project's remote, not the user's checkout.
-        git(storage, &["clone", "--quiet", "--no-checkout", "--", &src.to_string_lossy(), &repo.to_string_lossy()])?;
+        std::fs::create_dir_all(&repo).map_err(|e| e.to_string())?;
+        git(&repo, &["init", "--quiet"])?;
     }
-    trusted_config(&repo, &url)?;
-    fetch(&repo, &[])?;
+    let mirror = mirror.canonicalize().map_err(|e| e.to_string())?;
+    std::fs::write(repo.join(".git/objects/info/alternates"), format!("{}\n", mirror.join("objects").display())).map_err(|e| e.to_string())?;
+    let url = git(&mirror, &["remote", "get-url", "origin"])?;
+    trusted_config(&repo, url.trim())?;
+    copy_refs(&mirror, &repo)?;
     if new {
-        git(&repo, &["remote", "set-head", "origin", "--auto"])?;
-        // No branch of its own (the clone took the user's current one), so worktrees can check out any.
-        git(&repo, &["checkout", "--quiet", "--detach"])?;
-        for b in git(&repo, &["for-each-ref", "--format=%(refname:short)", "refs/heads"])?.lines() {
-            git(&repo, &["branch", "--quiet", "-D", b])?;
-        }
+        let sha = git(&repo, &["rev-parse", "--verify", "refs/remotes/origin/HEAD^{commit}"])?;
+        git(&repo, &["update-ref", "--no-deref", "HEAD", sha.trim()])?;
     }
     Ok(repo)
 }
 
+/// Makes `repo`'s origin branches and PR heads the mirror's, retrying once when an agent's git holds a ref lock.
+fn copy_refs(mirror: &Path, repo: &Path) -> Result<(), String> {
+    let refs = |dir: &Path| -> Result<Vec<(String, String)>, String> {
+        let mut args = vec!["for-each-ref", "--format=%(objectname) %(refname) %(symref)"];
+        args.extend(SHARED_REFS);
+        Ok(git(dir, &args)?
+            .lines()
+            .filter_map(|l| {
+                let mut f = l.split(' ');
+                let (sha, name, symref) = (f.next()?, f.next()?, f.next().unwrap_or(""));
+                symref.is_empty().then(|| (name.to_string(), sha.to_string()))
+            })
+            .collect())
+    };
+    let want = refs(mirror)?;
+    let mut stdin = String::new();
+    for (name, _) in refs(repo)? {
+        if !want.iter().any(|(n, _)| *n == name) {
+            stdin.push_str(&format!("delete {name}\n"));
+        }
+    }
+    for (name, sha) in &want {
+        stdin.push_str(&format!("update {name} {sha}\n"));
+    }
+    let update = || git_in(repo, &["update-ref", "--stdin"], &stdin);
+    match update() {
+        Err(e) if e.contains(".lock") || e.contains("cannot lock ref") => {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            update()?;
+        }
+        r => {
+            r?;
+        }
+    }
+    if let Ok(head) = git(mirror, &["symbolic-ref", "refs/remotes/origin/HEAD"]) {
+        git(repo, &["symbolic-ref", "refs/remotes/origin/HEAD", head.trim()])?;
+    }
+    Ok(())
+}
+
 /// Replaces the base clone's shared config with one Loft wrote: `origin` is `url`, hooks are off, and only the
-/// branches' upstreams carry over (onto `origin`), so nothing an agent set there runs or redirects anything.
+/// branches' upstreams carry over (onto `origin`), so agents push and pull where Loft says.
 fn trusted_config(repo: &Path, url: &str) -> Result<(), String> {
     let old = repo.join(".git/config");
     let new = repo.join(".git/config.loft");
@@ -214,21 +304,15 @@ fn trusted_config(repo: &Path, url: &str) -> Result<(), String> {
     std::fs::rename(&new, &old).map_err(|e| format!("writing {}: {e}", old.display()))
 }
 
-/// Fetches `origin` (its branches, or `refspecs`), retrying once when another agent's fetch holds a ref lock.
-fn fetch(repo: &Path, refspecs: &[&str]) -> Result<String, String> {
+/// Fetches the mirror's `origin`: its branches, or `refspecs`.
+fn fetch(mirror: &Path, refspecs: &[&str]) -> Result<String, String> {
     let mut args = vec!["-c", "protocol.ext.allow=never", "fetch", "--quiet"];
     if refspecs.is_empty() {
         args.push("--prune");
     }
     args.push("origin");
     args.extend(refspecs);
-    match git(repo, &args) {
-        Err(e) if e.contains(".lock") || e.contains("cannot lock ref") => {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            git(repo, &args)
-        }
-        r => r,
-    }
+    git(mirror, &args)
 }
 
 /// Runs git in `dir` with [`crate::repos::SAFE_GIT`]; its output, or what git said.
@@ -240,6 +324,28 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         .args(args)
         .output()
         .map_err(|e| format!("spawning git: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Runs git in `dir` like [`git`], with `input` on its stdin.
+fn git_in(dir: &Path, args: &[&str], input: &str) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(crate::repos::SAFE_GIT)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawning git: {e}"))?;
+    child.stdin.take().map(|mut i| i.write_all(input.as_bytes())).transpose().map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
     }
@@ -376,7 +482,10 @@ mod tests {
         let (review_wt, sha) = review(&storage, &projects, &checker, "loft", 7).unwrap();
         assert_eq!(review_wt, checker.join("loft-review"));
         assert_eq!(sha, head);
+        // Made without files; the checker checks it out, as the tool tells it to.
+        run(&review_wt, &["checkout", "--quiet", "--detach", &sha]);
         assert_eq!(run(&review_wt, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(run(&review_wt, &["status", "--porcelain"]), "");
         assert!(git(&review_wt, &["symbolic-ref", "-q", "HEAD"]).is_err(), "the review worktree is detached");
 
         // The dev keeps its branch and goes on; the next round moves the checker to the new head.
@@ -385,6 +494,7 @@ mod tests {
         let next = run(&dev, &["rev-parse", "HEAD"]).trim().to_string();
         run(&remote, &["update-ref", "refs/pull/7/head", &next]);
         assert_eq!(review(&storage, &projects, &checker, "loft", 7).unwrap(), (review_wt.clone(), next.clone()));
+        run(&review_wt, &["checkout", "--quiet", "--detach", &next]);
         assert_eq!(run(&review_wt, &["rev-parse", "HEAD"]).trim(), next);
         assert_eq!(run(&dev, &["symbolic-ref", "--short", "HEAD"]).trim(), "feat-x");
 
@@ -395,10 +505,10 @@ mod tests {
         let list = run(&storage.join(REPOS).join("loft"), &["worktree", "list"]);
         assert_eq!(list.lines().count(), 4, "{list}");
 
-        // A checker's changes are never thrown away: the next round refuses instead.
-        fs::write(review_wt.join("scratch.txt"), "x").unwrap();
+        // A worktree on a branch isn't taken for a review worktree.
+        run(&review_wt, &["switch", "--quiet", "-c", "oops"]);
         assert!(review(&storage, &projects, &checker, "loft", 7).is_err());
-        assert!(review(&storage, &projects, &checker, "loft", 99).is_err(), "no such PR");
+        assert!(review(&storage, &projects, &other, "loft", 99).is_err(), "no such PR");
     }
 
     #[test]
@@ -449,13 +559,15 @@ mod tests {
     }
 
     #[test]
-    fn a_fetch_held_up_by_another_agent_s_ref_lock_is_retried_once() {
+    fn copying_refs_held_up_by_an_agent_s_ref_lock_is_retried_once() {
         let (storage, projects, ws, remote) = setup();
         worktree(&storage, &projects, &ws, "loft", "one", "").unwrap();
         let up = remote.parent().unwrap().join("up");
         run(&up, &["commit", "--quiet", "--allow-empty", "-m", "two"]);
         run(&up, &["push", "--quiet", &remote.to_string_lossy(), "main"]);
         let base = storage.join(REPOS).join("loft");
+        let mirror = dir_of(&storage, MIRRORS, "loft");
+        fetch(&mirror, &[]).unwrap();
         let lock = base.join(".git/refs/remotes/origin/main.lock");
         fs::write(&lock, "").unwrap();
         let held = lock.clone();
@@ -463,8 +575,82 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(300));
             fs::remove_file(held).unwrap();
         });
-        fetch(&base, &[]).unwrap();
+        copy_refs(&mirror, &base).unwrap();
         other.join().unwrap();
         assert_eq!(run(&base, &["rev-parse", "origin/main"]), run(&up, &["rev-parse", "main"]));
+    }
+
+    /// A command that leaves `marker` behind when it runs.
+    fn trap(marker: &Path) -> String {
+        format!("sh -c 'touch {}; cat'", marker.display())
+    }
+
+    #[test]
+    fn a_worktree_of_the_agent_s_own_clone_is_not_taken_for_its_review_worktree() {
+        let (storage, projects, ws, remote) = setup();
+        run(&remote, &["update-ref", "refs/pull/1/head", "main"]);
+        let own = ws.join("own");
+        run(&ws, &["clone", "--quiet", &remote.to_string_lossy(), "own"]);
+        let ran = storage.join("ran");
+        run(&own, &["config", "filter.x.smudge", &trap(&ran)]);
+        run(&own, &["config", "filter.x.clean", &trap(&ran)]);
+        fs::write(own.join(".git/info/attributes"), "* filter=x\n").unwrap();
+        run(&own, &["worktree", "add", "--quiet", "--detach", &ws.join("loft-review").to_string_lossy(), "HEAD"]);
+        run(&own, &["worktree", "add", "--quiet", "-b", "b", &ws.join("loft-b").to_string_lossy(), "HEAD"]);
+
+        assert!(review(&storage, &projects, &ws, "loft", 1).is_err());
+        assert!(worktree(&storage, &projects, &ws, "loft", "b", "").is_err());
+        assert!(!ran.exists(), "a command an agent set ran");
+    }
+
+    #[test]
+    fn config_an_agent_writes_while_loft_works_runs_nothing() {
+        let (storage, projects, ws, remote) = setup();
+        let mine = worktree(&storage, &projects, &ws, "loft", "mine", "").unwrap();
+        run(&mine, &["checkout", "--quiet", "mine"]);
+        // A branch whose files go through filter `x`, and a PR to it.
+        fs::write(mine.join(".gitattributes"), "* filter=x\n").unwrap();
+        fs::write(mine.join("a.txt"), "a\n").unwrap();
+        run(&mine, &["add", "."]);
+        run(&mine, &["commit", "--quiet", "-m", "attrs"]);
+        run(&mine, &["push", "--quiet", "origin", "mine:filtered"]);
+        run(&remote, &["update-ref", "refs/pull/2/head", "filtered"]);
+        let ran = storage.join("ran");
+        let base_config = storage.join(REPOS).join("loft/.git/config");
+
+        // What an agent can run from its worktree in a loop while Loft's call is in flight.
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writer = {
+            let (stop, mine, cmd) = (stop.clone(), mine.clone(), trap(&ran));
+            std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    for (k, v) in [
+                        ("filter.x.smudge", cmd.as_str()),
+                        ("filter.x.clean", cmd.as_str()),
+                        ("filter.x.process", cmd.as_str()),
+                        ("remote.origin.uploadpack", &format!("{cmd}; git-upload-pack")),
+                        ("core.sshCommand", cmd.as_str()),
+                        ("credential.helper", &format!("!{cmd}")),
+                        ("protocol.ext.allow", "always"),
+                    ] {
+                        let _ = Command::new("git").arg("-C").arg(&mine).args(["config", k, v]).output();
+                    }
+                }
+            })
+        };
+        for i in 0..5 {
+            worktree(&storage, &projects, &ws, "loft", "filtered", "").unwrap();
+            worktree(&storage, &projects, &ws, "loft", &format!("new-{i}"), "filtered").unwrap();
+            review(&storage, &projects, &ws, "loft", 2).unwrap();
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        writer.join().unwrap();
+
+        assert!(fs::read_to_string(&base_config).unwrap().contains("filter"), "the writer never wrote");
+        assert!(!ran.exists(), "a command an agent set ran");
+        // Loft's mirror is untouched: its origin is the project's remote.
+        let mirror = dir_of(&storage, MIRRORS, "loft");
+        assert_eq!(run(&mirror, &["remote", "get-url", "origin"]).trim(), remote.to_string_lossy());
+        assert!(!fs::read_to_string(mirror.join("config")).unwrap().contains("filter"));
     }
 }

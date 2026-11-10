@@ -129,12 +129,12 @@ fn base_tools() -> Value {
         },
         {
             "name": "worktree",
-            "description": "Your git worktree of one of the user's projects for one piece of work, in your workspace as `<project>-<branch>`. Loft keeps one base clone of each project for all agents, fetches it, and checks out `branch`: the existing one (local or on the remote, e.g. a PR's head branch) or a new one from `base`. Calling again for the same branch returns the same worktree. To check a pull request (tests, QA, security, review), pass `pr` instead of `branch`: you get your one `<project>-review` worktree, detached at that PR's head SHA as just fetched. Returns its path.",
+            "description": "Your git worktree of one of the user's projects for one piece of work, in your workspace as `<project>-<branch>`. Loft keeps one base clone of each project for all agents, fetches it, and makes the worktree on `branch`: the existing one (local or on the remote, e.g. a PR's head branch) or a new one from `base`. A new worktree has no files: run the checkout command this returns. Calling again for the same branch returns the same worktree. To check a pull request (tests, QA, security, review), pass `pr` instead of `branch`: you get your one `<project>-review` worktree and the command that moves it to that PR's head SHA as just fetched. Returns its path and that command.",
             "inputSchema": { "type": "object", "properties": {
                 "project": { "type": "string", "description": "The project's folder name in the user's projects folder, e.g. `loft`" },
                 "branch": { "type": "string", "description": "The branch to work on, e.g. `fix/217-worktrees`" },
                 "base": { "type": "string", "description": "For a new branch: the remote branch to start from. Default: the remote's default branch." },
-                "pr": { "type": "integer", "description": "For checkers: the pull request to check out, detached at its head, in your review worktree" }
+                "pr": { "type": "integer", "description": "For checkers: the pull request to check, detached at its head, in your review worktree" }
             }, "required": ["project"] }
         },
         {
