@@ -91,16 +91,39 @@ pub fn worktree(storage: &Path, projects: &Path, ws: &Path, project: &str, branc
     Ok(path)
 }
 
-/// Deletes the workspace `ws` and prunes every base clone, so the worktrees it held don't keep their branches:
-/// another agent can then check those out again.
+/// Deletes the workspace `ws` and, in each base clone, the records of the worktrees it held, so their branches
+/// aren't "already used": another agent can check them out again. Agents can write in a base clone's `.git`, so
+/// git doesn't do this (`git worktree prune` empties whatever folder a record symlinks to): only real folders
+/// are walked, and only the records whose `gitdir` points inside `ws` are removed.
 pub fn remove_workspace(storage: &Path, ws: &Path) {
+    let ws_real = ws.canonicalize().ok();
     let _ = std::fs::remove_dir_all(ws);
-    let Ok(dirs) = std::fs::read_dir(storage.join(REPOS)) else { return };
+    let is_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+    let repos = storage.join(REPOS);
+    if !is_dir(&repos) {
+        return;
+    }
+    let Ok(dirs) = std::fs::read_dir(&repos) else { return };
     for dir in dirs.flatten() {
+        let records = dir.path().join(".git/worktrees");
+        if !is_dir(&dir.path()) || !is_dir(&dir.path().join(".git")) || !is_dir(&records) {
+            continue;
+        }
         let project = dir.file_name().to_string_lossy().replace("%2F", "/").replace("%25", "%");
         let lock = lock(&project);
         let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = git(&dir.path(), &["worktree", "prune"]);
+        let Ok(entries) = std::fs::read_dir(&records) else { continue };
+        for record in entries.flatten() {
+            let (record, gitdir) = (record.path(), record.path().join("gitdir"));
+            if !is_dir(&record) || !std::fs::symlink_metadata(&gitdir).is_ok_and(|m| m.is_file()) {
+                continue;
+            }
+            let Ok(target) = std::fs::read_to_string(&gitdir) else { continue };
+            let target = Path::new(target.trim());
+            if target.is_absolute() && (target.starts_with(ws) || ws_real.as_deref().is_some_and(|w| target.starts_with(w))) {
+                let _ = std::fs::remove_dir_all(&record);
+            }
+        }
     }
 }
 
@@ -315,12 +338,14 @@ fn fetch(mirror: &Path, refspecs: &[&str]) -> Result<String, String> {
     git(mirror, &args)
 }
 
-/// Runs git in `dir` with [`crate::repos::SAFE_GIT`]; its output, or what git said.
+/// Runs git in `dir` with [`crate::repos::SAFE_GIT`] and no automatic maintenance (a fetch starts one, and its
+/// `worktree prune` empties whatever folder a record in `.git/worktrees` symlinks to); its output, or what git said.
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(crate::repos::SAFE_GIT)
+        .args(["-c", "maintenance.auto=false", "-c", "gc.auto=0"])
         .args(args)
         .output()
         .map_err(|e| format!("spawning git: {e}"))?;
@@ -429,6 +454,39 @@ mod tests {
         assert_eq!(worktree(&storage, &projects, &other, "loft", "fix/new", "").unwrap(), other.join("loft-fix-new"));
         let list = run(&storage.join(REPOS).join("loft"), &["worktree", "list"]);
         assert!(!list.contains(&*ws.to_string_lossy()), "{list}");
+    }
+
+    #[test]
+    fn deleting_a_workspace_follows_no_symlink_and_leaves_other_workspaces_records() {
+        let (storage, projects, ws, _) = setup();
+        worktree(&storage, &projects, &ws, "loft", "feat/x", "").unwrap();
+        let other = storage.join("b");
+        fs::create_dir_all(&other).unwrap();
+        let kept = worktree(&storage, &projects, &other, "loft", "fix/kept", "").unwrap();
+        let victim = temp();
+        fs::create_dir_all(victim.join("sub")).unwrap();
+        fs::write(victim.join("a.txt"), "keep").unwrap();
+        fs::write(victim.join("sub/b.txt"), "keep").unwrap();
+        let base = storage.join(REPOS).join("loft");
+        std::os::unix::fs::symlink(&victim, base.join(".git/worktrees/evil")).unwrap();
+        // A plain folder in .repos isn't a base clone: nothing runs there.
+        fs::create_dir_all(storage.join(REPOS).join("plain")).unwrap();
+
+        remove_workspace(&storage, &ws);
+        assert!(victim.join("a.txt").exists() && victim.join("sub/b.txt").exists(), "a record's symlink is never followed");
+        let list = run(&base, &["worktree", "list"]);
+        assert!(!list.contains("loft-feat-x") && list.contains("loft-fix-kept"), "{list}");
+        // Its fetch starts no maintenance, whose `worktree prune` would empty the victim.
+        assert_eq!(worktree(&storage, &projects, &other, "loft", "fix/kept", "").unwrap(), kept);
+        assert!(victim.join("a.txt").exists() && victim.join("sub/b.txt").exists(), "no git maintenance prunes the records");
+
+        // With `.git/worktrees` itself a symlink, nothing is touched either.
+        fs::remove_file(base.join(".git/worktrees/evil")).unwrap();
+        let real = base.join(".git/worktrees");
+        fs::rename(&real, victim.join("records")).unwrap();
+        std::os::unix::fs::symlink(&victim, &real).unwrap();
+        remove_workspace(&storage, &other);
+        assert!(victim.join("a.txt").exists() && victim.join("sub/b.txt").exists() && victim.join("records/loft-fix-kept").exists());
     }
 
     #[test]
