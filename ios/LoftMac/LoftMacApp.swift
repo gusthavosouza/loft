@@ -39,6 +39,7 @@ struct LoftMacApp: App {
     var body: some Scene {
         Window("Loft", id: "main") {
             MacRootView()
+                .tint(Theme.accent)
                 .environment(store)
                 .environment(nav)
                 .environment(voice)
@@ -50,6 +51,7 @@ struct LoftMacApp: App {
                 .task {
                     let args = ProcessInfo.processInfo.arguments
                     if let i = args.firstIndex(of: "-render-menubar"), i + 1 < args.count { await renderMenuBar(store: store, nav: nav, to: args[i + 1]) }
+                    if let i = args.firstIndex(of: "-render-window"), i + 1 < args.count { await renderWindow(store: store, nav: nav, to: args[i + 1]) }
                 }
                 #endif
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in store.saveNow() }
@@ -58,11 +60,12 @@ struct LoftMacApp: App {
         .defaultSize(width: 1400, height: 860)
         .commands { LoftCommands(nav: nav) }
 
-        MenuBarExtra { MenuBarContent().environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts).environment(store) }
+        MenuBarExtra { MenuBarContent().tint(Theme.accent).environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts).environment(store) }
             .menuBarExtraStyle(.window)
 
         Settings {
             AddressForm(isOnboarding: false)
+                .tint(Theme.accent)
                 .environment(store)
                 .frame(width: 520)
                 .padding()
@@ -213,7 +216,7 @@ struct MainWindow: View {
                     Text(store.connection.label).foregroundStyle(.secondary)
                 } icon: {
                     Image(systemName: store.connection.isUsable ? "circle.fill" : "circle.dotted")
-                        .foregroundStyle(store.connection == .connected ? Color.green : store.connection.isUsable ? Color.orange : Color.secondary)
+                        .foregroundStyle(store.connection.color)
                 }
                     .font(.caption)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -280,3 +283,36 @@ struct RecipientPicker: View {
         dismiss()
     }
 }
+
+#if DEBUG
+/// `-render-window <folder>`: draws the main window to PNGs (pairing, or a chat and the Issues board), then quits.
+/// For screenshots when a UI test can't drive the app (another copy of it is open, and XCUITest picks that one).
+@MainActor
+func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
+    // `-render-appearance light|dark`: the system's own setting otherwise.
+    let args = ProcessInfo.processInfo.arguments
+    if let i = args.firstIndex(of: "-render-appearance"), i + 1 < args.count {
+        NSApp.appearance = NSAppearance(named: args[i + 1] == "dark" ? .darkAqua : .aqua)
+    }
+    for _ in 0..<80 where store.agents.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+    try? await Task.sleep(for: .seconds(1))
+    func png(_ name: String) {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 600 }),
+              let view = window.contentView?.superview ?? window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+    }
+    if store.agents.isEmpty {
+        png("pairing")
+    } else {
+        if let id = store.agents.first(where: { $0.name == "Orchestrator" })?.id { nav.openChat(id) }
+        try? await Task.sleep(for: .seconds(2))
+        png("agents")
+        nav.section = .issues
+        try? await Task.sleep(for: .seconds(2))
+        png("issues")
+    }
+    NSApp.terminate(nil)
+}
+#endif

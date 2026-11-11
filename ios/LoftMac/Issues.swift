@@ -135,7 +135,7 @@ private struct IssueCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: task.state.isClosed ? "checkmark.circle" : "circle.circle")
-                            .foregroundStyle(task.state.isClosed ? Color.purple : Color.green)
+                            .foregroundStyle(task.state.isClosed ? Color.purple : Theme.working)
                             .accessibilityLabel(task.state.isClosed ? "Closed" : "Open")
                         Text(task.title).foregroundStyle(task.state.isClosed ? .secondary : .primary).lineLimit(3)
                     }
@@ -178,7 +178,7 @@ private struct SpecCard: View {
                         if let p = SpecViews.progress(of: spec, d, tasks: store.tasks) { ProgressRow(done: p.done, total: p.total) }
                         if let d {
                             ForEach(SpecViews.onIt(d), id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                            if let line = SpecViews.waitingOnYouLine(d.waitingOnYou) { Text(line).font(.caption).foregroundStyle(.orange) }
+                            if let line = SpecViews.waitingOnYouLine(d.waitingOnYou) { Text(line).font(.caption).foregroundStyle(Theme.attentionInk) }
                         }
                         HStack(spacing: 8) {
                             Text(SpecViews.ref(spec))
@@ -238,13 +238,13 @@ struct IssuePage: View {
                         .foregroundStyle(.secondary)
                     }
                     if let g = t.github, let url = URL(string: g.url), url.scheme == "https" {
-                        Link("Open on GitHub", destination: url).accessibilityIdentifier("issueGitHubLink")
+                        Link("Open on GitHub", destination: url).foregroundStyle(Theme.accent).accessibilityIdentifier("issueGitHubLink")
                     }
                     if !t.description.isEmpty {
                         Text(t.description).textSelection(.enabled).font(.callout)
                     }
                     if t.state.isActive && !t.note.isEmpty { LabeledContent("Latest progress", value: t.note) }
-                    if !t.error.isEmpty { Text(t.error).foregroundStyle(.red) }
+                    if !t.error.isEmpty { Text(t.error).foregroundStyle(Theme.failureInk) }
                 }
                 if t.hasDeliveryCard { DeliveryCard(task: t) }
                 if SpecViews.isSpec(t) { SpecProgress(spec: t, underCard: t.hasDeliveryCard) }
@@ -280,8 +280,8 @@ private struct DeliveryCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(intro(d, number)).foregroundStyle(.secondary)
                 ForEach(d?.runningLines ?? [], id: \.self) { Text($0).accessibilityIdentifier("deliveryRunning") }
-                if let line = SpecViews.waitingOnYouLine(d?.waitingOnYou) { Text(line).foregroundStyle(.orange) }
-                if let line = SpecViews.waitingLine(d?.waitingForLead) { Text(line).foregroundStyle(.orange).accessibilityIdentifier("deliveryWaiting") }
+                if let line = SpecViews.waitingOnYouLine(d?.waitingOnYou) { Text(line).foregroundStyle(Theme.attentionInk) }
+                if let line = SpecViews.waitingLine(d?.waitingForLead) { Text(line).foregroundStyle(Theme.attentionInk).accessibilityIdentifier("deliveryWaiting") }
                 if let line = d?.line {
                     Text(line.text).fontWeight(.medium).foregroundStyle(color(line.tone)).accessibilityIdentifier("deliveryState")
                 }
@@ -297,7 +297,7 @@ private struct DeliveryCard: View {
                 if busy != nil { ProgressView().controlSize(.small) }
             }
             if let said {
-                Text(said.text).font(.footnote).foregroundStyle(said.ok ? Color.secondary : Color.red).accessibilityIdentifier("deliverySaid")
+                Text(said.text).font(.footnote).foregroundStyle(said.ok ? Color.secondary : Theme.failureInk).accessibilityIdentifier("deliverySaid")
             }
         }
         .task(id: task.id) { try? await store.loadDelivery(task.id) }
@@ -314,11 +314,11 @@ private struct DeliveryCard: View {
 
     private func color(_ tone: IssueDelivery.Tone) -> Color {
         switch tone {
-        case .running, .final: .accentColor
-        case .stalled: .red
+        case .running, .final: Theme.accent
+        case .stalled: Theme.failureInk
         case .paused: .secondary
-        case .needsYou: .orange
-        case .done: .green
+        case .needsYou: Theme.attentionInk
+        case .done: Theme.working
         }
     }
 
@@ -362,14 +362,14 @@ private struct SpecProgress: View {
                         if !underCard { DeliveryBadge(state: d.state).accessibilityIdentifier("deliveryState") }
                         Spacer()
                         if let pr = d.pr, let g = spec.github, let url = URL(string: "https://github.com/\(g.repo)/pull/\(pr)") {
-                            Link(destination: url) { Label("Spec PR #\(pr)", systemImage: "arrow.triangle.pull") }.accessibilityIdentifier("specPRLink")
+                            Link(destination: url) { Label("Spec PR #\(pr)", systemImage: "arrow.triangle.pull") }.foregroundStyle(Theme.accent).accessibilityIdentifier("specPRLink")
                         }
                     }
                 }
                 if !underCard {
                     ForEach(SpecViews.onIt(d), id: \.self) { Text($0).foregroundStyle(.secondary) }
-                    if let line = SpecViews.waitingOnYouLine(d.waitingOnYou) { Text(line).foregroundStyle(.orange) }
-                    if let line = SpecViews.waitingLine(d.waitingForLead) { Text(line).foregroundStyle(.orange) }
+                    if let line = SpecViews.waitingOnYouLine(d.waitingOnYou) { Text(line).foregroundStyle(Theme.attentionInk) }
+                    if let line = SpecViews.waitingLine(d.waitingForLead) { Text(line).foregroundStyle(Theme.attentionInk) }
                 }
                 if let p = SpecViews.progress(of: spec, d, tasks: store.tasks) {
                     ProgressRow(done: p.done, total: p.total).accessibilityIdentifier("deliveryProgress")
@@ -379,7 +379,7 @@ private struct SpecProgress: View {
                         .disabled(merging || !store.canWrite)
                         .accessibilityIdentifier("mergeDelivery")
                 }
-                if let result { Text(result.text).font(.footnote).foregroundStyle(result.ok ? Color.green : Color.red) }
+                if let result { Text(result.text).font(.footnote).foregroundStyle(result.ok ? Theme.working : Theme.failureInk) }
             }
         }
         if !tickets.isEmpty {
@@ -415,7 +415,7 @@ private struct TicketLink: View {
                 HStack(spacing: 8) {
                     ForEach(ticket.verdicts.sorted { $0.key < $1.key }, id: \.key) { role, v in
                         Label("\(role) \(v == "pass" ? "passed" : "waiting")", systemImage: v == "pass" ? "checkmark.circle.fill" : "clock")
-                            .font(.caption2).foregroundStyle(v == "pass" ? Color.green : .secondary)
+                            .font(.caption2).foregroundStyle(v == "pass" ? Theme.working : .secondary)
                     }
                 }
             }
@@ -438,8 +438,8 @@ private struct DeliveryBadge: View {
         Text(SpecViews.deliveryLabel(state))
             .font(.caption2.weight(.medium))
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Color.accentColor.opacity(0.15), in: Capsule())
-            .foregroundStyle(Color.accentColor)
+            .background(Theme.accent.opacity(0.15), in: Capsule())
+            .foregroundStyle(Theme.accent)
     }
 }
 
@@ -460,9 +460,9 @@ private struct ProgressRow: View {
 /// A ticket state's colour, as on the web: done green, needs you orange, being worked on the accent.
 private func ticketTone(_ state: String) -> Color {
     switch state {
-    case "closed": .green
-    case "needs_human": .orange
-    case "started", "review", "closing": .accentColor
+    case "closed": Theme.working
+    case "needs_human": Theme.attentionInk
+    case "started", "review", "closing": Theme.accent
     default: .secondary
     }
 }
@@ -471,9 +471,9 @@ private extension SpecStage {
     var tone: Color {
         switch self {
         case .planned, .dropped: .secondary
-        case .delivery: .accentColor
-        case .ready: .orange
-        case .shipped: .green
+        case .delivery: Theme.accent
+        case .ready: Theme.attentionInk
+        case .shipped: Theme.working
         }
     }
 }

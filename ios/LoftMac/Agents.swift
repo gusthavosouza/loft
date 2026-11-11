@@ -83,7 +83,7 @@ struct AgentRow: View {
                 Text(subtitle(state)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            Circle().fill(color(state)).frame(width: 8, height: 8).help(state.label).accessibilityHidden(true)
+            Circle().fill(state.color).frame(width: 8, height: 8).help(state.label).accessibilityHidden(true)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
@@ -96,14 +96,6 @@ struct AgentRow: View {
         return s.label
     }
 
-    private func color(_ s: AgentState) -> Color {
-        switch s {
-        case .working: .green
-        case .waitingApproval: .orange
-        case .failed: .red
-        default: .secondary.opacity(0.5)
-        }
-    }
 }
 
 /// A round badge with the agent's initials (a Lead's is filled).
@@ -116,9 +108,9 @@ struct Initials: View {
         let letters = name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
         Text(letters)
             .font(.system(size: size * 0.4, weight: .bold))
-            .foregroundStyle(lead ? Color.white : Color.accentColor)
+            .foregroundStyle(lead ? Theme.onAccent : Theme.accent)
             .frame(width: size, height: size)
-            .background(lead ? Color.accentColor : Color.accentColor.opacity(0.15), in: Circle())
+            .background(lead ? Theme.accent : Theme.accent.opacity(0.15), in: Circle())
             .accessibilityHidden(true)
     }
 }
@@ -183,7 +175,7 @@ struct AgentSettingsView: View {
                     }
                 }
                 if let error {
-                    Text(error).font(.footnote).foregroundStyle(.red)
+                    Text(error).font(.footnote).foregroundStyle(Theme.failureInk)
                 }
             }
         }

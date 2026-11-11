@@ -39,7 +39,7 @@ struct ChatView: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if store.historyHasMore[agent.id] == true, !shown.isEmpty {
                         Button("Load earlier messages") { Task { try? await store.loadOlder(agent.id) } }
-                            .buttonStyle(.link)
+                            .buttonStyle(.link).foregroundStyle(Theme.accent)
                             .frame(maxWidth: .infinity)
                     }
                     ForEach(shown) { MessageRow(message: $0) }
@@ -70,7 +70,7 @@ struct ChatView: View {
                     Label("Send to \(target.name) too?", systemImage: "arrow.turn.up.right").font(.footnote)
                     Spacer()
                     Button("Send") { route = nil; Task { await store.send(r.text, to: r.agentId) } }
-                        .buttonStyle(.borderedProminent).controlSize(.small)
+                        .buttonStyle(.accent).controlSize(.small)
                         .accessibilityIdentifier("routeSend")
                     Button { route = nil } label: { Image(systemName: "xmark") }
                         .buttonStyle(.bordered).controlSize(.small)
@@ -124,7 +124,7 @@ private struct MessageRow: View {
         switch message.kind {
         case "error":
             Label(message.displayContent, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(Theme.failureInk)
                 .textSelection(.enabled)
         case "notice":
             Text(message.displayContent).font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
@@ -146,8 +146,8 @@ private struct MessageRow: View {
                             .textSelection(.enabled)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .foregroundStyle(isUser ? Color.white : Color.primary)
-                            .background(isUser ? Color.accentColor : Color.secondary.opacity(0.12),
+                            .foregroundStyle(isUser ? Theme.onAccent : Color.primary)
+                            .background(isUser ? Theme.accent : Color.secondary.opacity(0.12),
                                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     Text(message.createdAt, style: .time).font(.caption2).foregroundStyle(.secondary)
@@ -191,12 +191,12 @@ private struct PendingRow: View {
                     Text(message.text)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .foregroundStyle(.white)
-                        .background(Color.accentColor.opacity(message.isFailed ? 0.4 : 0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .foregroundStyle(Theme.onAccent)
+                        .background(Theme.accent.opacity(message.isFailed ? 0.4 : 0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 if let failure = message.failure {
                     HStack {
-                        Label("Not sent: \(failure)", systemImage: "exclamationmark.circle").foregroundStyle(.red)
+                        Label("Not sent: \(failure)", systemImage: "exclamationmark.circle").foregroundStyle(Theme.failureInk)
                         Button("Retry") { Task { await store.retry(message) } }
                         Button("Discard") { store.discard(message) }
                     }
@@ -356,7 +356,7 @@ private struct Composer: View {
         VStack(alignment: .trailing, spacing: 2) {
             Image(systemName: dictation.state.isRecording ? "mic.circle.fill" : "mic")
                 .font(dictation.state.isRecording ? .title2 : .body)
-                .foregroundStyle(dictation.state.isRecording ? Color.red : Color.primary)
+                .foregroundStyle(dictation.state.isRecording ? Theme.failure : Color.primary)
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 60, maximumDistance: 40, perform: {}, onPressingChanged: { pressing in
@@ -369,11 +369,11 @@ private struct Composer: View {
                 .accessibilityAction { talk() }
                 .accessibilityIdentifier("micButton")
             if !dictation.state.isRecording, let message = dictation.state.message {
-                Text(message).font(.caption2).foregroundStyle(.red).frame(maxWidth: 220, alignment: .trailing)
+                Text(message).font(.caption2).foregroundStyle(Theme.failureInk).frame(maxWidth: 220, alignment: .trailing)
                     .accessibilityIdentifier("dictationMessage")
                 if case .denied = dictation.state {
                     Button("Open System Settings") { NSWorkspace.shared.open(TalkPermission.settingsURL(for: message)) }
-                        .font(.caption2).buttonStyle(.link)
+                        .font(.caption2).buttonStyle(.link).foregroundStyle(Theme.accent)
                         .accessibilityIdentifier("dictationOpenSettings")
                 }
             }
@@ -500,7 +500,7 @@ private struct AttachmentChip: View {
     var body: some View {
         HStack(spacing: 6) {
             if let failure = attachment.failure {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(failure)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.failure).help(failure)
             } else if attachment.uploaded == nil {
                 ProgressView().controlSize(.small)
             } else {

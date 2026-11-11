@@ -40,7 +40,7 @@ struct AddressForm: View {
             if let failure {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Can't reach Loft at \(url?.absoluteString ?? address)", systemImage: "xmark.octagon.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.failureInk)
                         .accessibilityIdentifier("connectError")
                     Text("\(failure.title). Check that Loft is running there and the address is right.")
                         .font(.footnote)
@@ -49,7 +49,7 @@ struct AddressForm: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .background(Theme.failure.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
             HStack {
                 Button {
@@ -128,7 +128,7 @@ struct PairScreen: View {
                 outcome("Couldn't pair", why)
             }
             Button("Change address…") { store.forgetServer() }
-                .buttonStyle(.link)
+                .buttonStyle(.link).foregroundStyle(Theme.accent)
                 .accessibilityIdentifier("pairingChangeAddress")
         }
         .frame(maxWidth: 460)

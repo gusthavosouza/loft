@@ -41,7 +41,7 @@ struct TalkSheet: View {
                         .disabled(!ready)
                         .accessibilityIdentifier("talkEdit")
                     Button { Task { await voice.finish(.send) } } label: { Label("Send", systemImage: "arrow.up.circle.fill") }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.accent)
                         .keyboardShortcut(.defaultAction)
                         .disabled(!ready)
                         .accessibilityIdentifier("talkSend")
@@ -82,7 +82,7 @@ struct TalkSheet: View {
                         Button { voice.switchAgent(a.id) } label: {
                             Text(TalkRecipients.label(a, among: shown)).fontWeight(a.id == current ? .semibold : .regular)
                                 .padding(.horizontal, 10).padding(.vertical, 4)
-                                .background(a.id == current ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12), in: Capsule())
+                                .background(a.id == current ? Theme.accent.opacity(0.25) : Color.secondary.opacity(0.12), in: Capsule())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("talkTo-\(a.name)")
@@ -104,7 +104,7 @@ struct TalkSheet: View {
                 if voice.committed.isEmpty && voice.live.isEmpty {
                     Text(voice.phase == .preparing ? "Getting ready…" : "Start talking…").foregroundStyle(.tertiary)
                 } else {
-                    Text(voice.committed) + Text(voice.committed.isEmpty || voice.live.isEmpty ? "" : " ") + Text(voice.live).foregroundStyle(Color.accentColor)
+                    Text(voice.committed) + Text(voice.committed.isEmpty || voice.live.isEmpty ? "" : " ") + Text(voice.live).foregroundStyle(Theme.accent)
                 }
             }
             .font(.title3.weight(.medium))
@@ -158,7 +158,7 @@ struct TalkBars: View {
             ForEach(0..<21, id: \.self) { i in
                 let centre = 1 - abs(CGFloat(i) - 10) / 12
                 Capsule()
-                    .fill(Color.accentColor.opacity(0.55 + 0.45 * centre))
+                    .fill(Theme.accent.opacity(0.55 + 0.45 * centre))
                     .frame(width: 5, height: 6 + (active ? 44 * CGFloat(min(max(level, 0), 1)) * centre : 0))
             }
         }

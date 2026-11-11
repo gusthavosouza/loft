@@ -106,9 +106,9 @@ private extension View {
     func widgetLink(_ link: DeepLink) -> some View { modifier(WidgetLink(link: link)) }
 }
 
-/// Loft's palette (the Mac menu bar's): lime accent, status colours.
+/// Loft's palette (Theme), with the accent fixed to the lime: the widgets draw on a dark tile in either mode.
 enum WidgetTheme {
     static let accent = Color(red: 0.78, green: 0.95, blue: 0.43)
-    static let working = Color(red: 0.30, green: 0.82, blue: 0.52)
-    static let attention = Color(red: 1.00, green: 0.72, blue: 0.25)
+    static let working = Theme.working
+    static let attention = Theme.attention
 }

@@ -4,21 +4,6 @@ import SwiftUI
 
 /// The Loft item in the Mac menu bar (spec #382): the Needs you count, who is working, and a quick message box.
 /// It works with the main window closed: a click opens the window on the agent.
-/// Loft's palette, as the web and the iPhone app have it (ios/Loft/DesignSystem/Theme.swift), not macOS blue. Copied
-/// until Theme moves into LoftKit (#398), then this goes.
-private enum MenuTheme {
-    private static func dynamic(light: NSColor, dark: NSColor) -> Color {
-        Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })
-    }
-    /// Lime on dark, the deeper green on light.
-    static let accent = dynamic(light: NSColor(red: 0x4F / 255, green: 0x6A / 255, blue: 0x26 / 255, alpha: 1),
-                                dark: NSColor(red: 0xC8 / 255, green: 0xF2 / 255, blue: 0x6D / 255, alpha: 1))
-    static let onAccent = dynamic(light: .white, dark: NSColor(red: 0.03, green: 0.04, blue: 0.04, alpha: 1))
-    static let working = Color(red: 0.30, green: 0.82, blue: 0.52)
-    static let attention = Color(red: 1.00, green: 0.72, blue: 0.25)
-    static let failure = Color(red: 1.00, green: 0.42, blue: 0.40)
-}
-
 struct MenuBarLabel: View {
     @Environment(LoftStore.self) private var store
     @Environment(\.openWindow) private var openWindow
@@ -51,7 +36,7 @@ struct MenuBarContent: View {
                 Text("Nobody is working").foregroundStyle(.secondary)
             }
             ForEach(s.working) { a in
-                Button { open(agent: a.id) } label: { Label { Text(a.name) } icon: { Image(systemName: "bolt.fill").foregroundStyle(MenuTheme.working) }.frame(maxWidth: .infinity, alignment: .leading) }
+                Button { open(agent: a.id) } label: { Label { Text(a.name) } icon: { Image(systemName: "bolt.fill").foregroundStyle(Theme.working) }.frame(maxWidth: .infinity, alignment: .leading) }
                     .accessibilityIdentifier("menuAgent-\(a.name)")
             }
             Divider()
@@ -61,13 +46,13 @@ struct MenuBarContent: View {
             }
             ForEach(s.items) { item in
                 Button { item.agentId.map { open(agent: $0) } ?? open(section: .needsYou) } label: {
-                    Label { Text(item.title).lineLimit(1) } icon: { Image(systemName: "circle.fill").font(.system(size: 6)).foregroundStyle(MenuTheme.attention) }
+                    Label { Text(item.title).lineLimit(1) } icon: { Image(systemName: "circle.fill").font(.system(size: 6)).foregroundStyle(Theme.attention) }
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .accessibilityIdentifier("menuNeeds-\(item.id)")
             }
             if s.needsCount > s.items.count {
-                Button("All \(s.needsCount)…") { open(section: .needsYou) }.foregroundStyle(MenuTheme.accent)
+                Button("All \(s.needsCount)…") { open(section: .needsYou) }.foregroundStyle(Theme.accent)
             }
             Divider()
             header("Quick message")
@@ -80,17 +65,17 @@ struct MenuBarContent: View {
                 TextField("Message \(targetName)", text: $text).textFieldStyle(.roundedBorder).onSubmit(send)
                     .accessibilityIdentifier("menuMessage")
                 Button("Send", action: send).buttonStyle(.plain).fontWeight(.semibold)
-                    .foregroundStyle(MenuTheme.onAccent).padding(.horizontal, 12).padding(.vertical, 4)
-                    .background(MenuTheme.accent.opacity(canSend ? 1 : 0.35), in: RoundedRectangle(cornerRadius: 6))
+                    .foregroundStyle(Theme.onAccent).padding(.horizontal, 12).padding(.vertical, 4)
+                    .background(Theme.accent.opacity(canSend ? 1 : 0.35), in: RoundedRectangle(cornerRadius: 6))
                     .disabled(!canSend)
                     .accessibilityIdentifier("menuSend")
             }
             if let result {
-                Text(result.text).font(.caption).foregroundStyle(result.failed ? MenuTheme.failure : MenuTheme.working)
+                Text(result.text).font(.caption).foregroundStyle(result.failed ? Theme.failure : Theme.working)
                     .accessibilityIdentifier("menuResult")
             }
             Divider()
-            Button("Open Loft") { open(section: nil) }.foregroundStyle(MenuTheme.accent)
+            Button("Open Loft") { open(section: nil) }.foregroundStyle(Theme.accent)
             Button("Quit Loft") { NSApp.terminate(nil) }.keyboardShortcut("q")
         }
         .buttonStyle(.plain)
