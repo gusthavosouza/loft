@@ -77,6 +77,10 @@ final class LoftMacUITests: XCTestCase {
         let list = app.outlines["agentsList"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         list.cells.containing(.any, identifier: "agentRow-Orchestrator").firstMatch.click()
+        // Another agent's handover is incoming, not one of the user's own messages.
+        let handover = app.descendants(matching: .any).matching(identifier: "agentMessage")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "From Backend Agent")).firstMatch
+        XCTAssertTrue(handover.waitForExistence(timeout: 10))
 
         let field = app.textFields["composerField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))

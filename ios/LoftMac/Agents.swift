@@ -30,7 +30,7 @@ struct AgentsSection: View {
                     ContentUnavailableView("No agents", systemImage: "person.3", description: Text("Create agents in Loft first."))
                 }
             }
-            .frame(minWidth: 240, idealWidth: 280, maxWidth: 380)
+            .frame(minWidth: 220, idealWidth: 260, maxWidth: 380)
             .accessibilityIdentifier("agentsList")
 
             Group {
@@ -166,9 +166,10 @@ struct AgentSettingsView: View {
                     ForEach(intervals, id: \.0) { Text($0.1).tag($0.0) }
                 }
                 if !agent.isLead || agent.freshContextApplies != false {
-                    Picker("Fresh context per ticket", selection: $draft.freshContext) {
+                    Picker("Fresh context", selection: $draft.freshContext) {
                         ForEach(AgentDraft.freshContexts, id: \.0) { Text($0.1).tag($0.0) }
                     }
+                    .help("Before Delivery starts it on a new ticket, Loft clears its context: always, or once it reaches the threshold.")
                 }
             }
             Section {
@@ -187,7 +188,7 @@ struct AgentSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
+        .inspectorColumnWidth(min: 280, ideal: 300, max: 420)
     }
 
     /// The listed choices, plus the current value when it isn't one of them (set elsewhere).

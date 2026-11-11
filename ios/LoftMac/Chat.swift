@@ -49,7 +49,9 @@ private struct MessageRow: View {
     @Environment(LoftStore.self) private var store
     let message: ChatMessage
 
-    private var isUser: Bool { message.role == "user" }
+    /// The user's own message. Another agent's handover, delegation or FYI also comes as role user, with who sent
+    /// it: that one is incoming, on the left, as on the iPhone and the web.
+    private var isUser: Bool { message.role == "user" && message.fromAgentName == nil }
 
     var body: some View {
         switch message.kind {

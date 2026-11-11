@@ -32,12 +32,12 @@ struct LoftMacApp: App {
             MacRootView()
                 .environment(store)
                 .environment(nav)
-                .frame(minWidth: 1100, minHeight: 640)
+                .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in store.saveNow() }
         }
         // Room for the sidebar, the agents, the chat and the agent's settings side by side.
-        .defaultSize(width: 1280, height: 800)
+        .defaultSize(width: 1400, height: 860)
         .commands { LoftCommands(nav: nav) }
 
         Settings {
@@ -174,9 +174,13 @@ struct MainWindow: View {
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
             .safeAreaInset(edge: .bottom) {
-                Label(store.connection.label, systemImage: store.connection.isUsable ? "circle.fill" : "circle.dotted")
+                Label {
+                    Text(store.connection.label).foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: store.connection.isUsable ? "circle.fill" : "circle.dotted")
+                        .foregroundStyle(store.connection == .connected ? Color.green : store.connection.isUsable ? Color.orange : Color.secondary)
+                }
                     .font(.caption)
-                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
                     .accessibilityIdentifier("connectionLabel")
