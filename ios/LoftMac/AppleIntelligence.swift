@@ -2,9 +2,9 @@ import LoftKit
 import SwiftUI
 
 /// Settings › Apple Intelligence on the Mac (spec #382): the on-device model's status and the iPhone's switches for
-/// the features this app has. A switch is off and disabled while the model can't run; the setting is kept.
+/// the features this app has. "Summaries in Needs you" (#387, which builds that screen) and dictation cleanup
+/// (#392, voice) get their switches when those land. A switch is off and disabled while the model can't run; the setting is kept.
 struct AppleIntelligenceSection: View {
-    @AppStorage(Prefs.aiNeedsYou) private var aiNeedsYou = true
     @AppStorage(Prefs.aiRoute) private var aiRoute = true
     @AppStorage(Prefs.aiChatReplies) private var aiChatReplies = true
     @State private var status = OnDeviceModel.status
@@ -14,8 +14,6 @@ struct AppleIntelligenceSection: View {
             Text("Apple Intelligence").font(.headline)
             LabeledContent("On-device model", value: status.text)
                 .accessibilityIdentifier("onDeviceModelStatus")
-            toggle("Summaries in Needs you", $aiNeedsYou, id: "aiNeedsYouToggle",
-                   note: "One line per item and suggested replies, which only fill in the reply box.")
             toggle("Suggest who it's for", $aiRoute, id: "aiRouteToggle",
                    note: "Offers “Send to …?” when a message looks meant for one agent. Nothing goes without your click.")
             toggle("Suggested replies in chats", $aiChatReplies, id: "aiChatRepliesToggle",
