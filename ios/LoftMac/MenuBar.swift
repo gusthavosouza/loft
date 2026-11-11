@@ -21,6 +21,8 @@ private enum MenuTheme {
 
 struct MenuBarLabel: View {
     @Environment(LoftStore.self) private var store
+    @Environment(\.openWindow) private var openWindow
+    var alerts: MacAlerts?
 
     var body: some View {
         let count = MenuBarSummary(store).needsCount
@@ -28,6 +30,7 @@ struct MenuBarLabel: View {
             Image(systemName: count > 0 ? "bell.badge" : "circle.hexagongrid")
             if count > 0 { Text("\(count)") }
         }
+        .onAppear { alerts?.showWindow = { openWindow(id: "main") } }
     }
 }
 

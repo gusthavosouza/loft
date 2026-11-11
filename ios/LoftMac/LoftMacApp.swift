@@ -5,7 +5,8 @@ import SwiftUI
 @main
 struct LoftMacApp: App {
     @State private var store: LoftStore
-    @State private var nav = MacNav()
+    @State private var nav: MacNav
+    @State private var alerts: MacAlerts
 
     init() {
         Prefs.registerDefaults()
@@ -13,6 +14,9 @@ struct LoftMacApp: App {
         // Live from launch: the menu bar item needs it with the window closed.
         store.activate()
         _store = State(initialValue: store)
+        let nav = MacNav()
+        _nav = State(initialValue: nav)
+        _alerts = State(initialValue: MacAlerts(store: store, nav: nav))
     }
 
     private static func makeAPI() -> LoftAPI? {
@@ -49,7 +53,7 @@ struct LoftMacApp: App {
         .defaultSize(width: 1400, height: 860)
         .commands { LoftCommands(nav: nav) }
 
-        MenuBarExtra { MenuBarContent().environment(store).environment(nav) } label: { MenuBarLabel().environment(store) }
+        MenuBarExtra { MenuBarContent().environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts).environment(store) }
             .menuBarExtraStyle(.window)
 
         Settings {
