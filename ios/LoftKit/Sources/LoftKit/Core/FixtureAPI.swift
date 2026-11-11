@@ -956,6 +956,7 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
     /// `/api/settings`'s object as the server keeps it, with an empty `github_token` as it sends it.
     private var settings: JSONValue = ["comment_approval_default": "ask", "auto_publish_all": false, "github_token": "",
                                        "auto_update": true, "messaging_rules": true, "idle_timeout_hours": .number(4),
+                                       "projects_dir": "/Users/me/dev", "claude_bin": "claude", "ssh_host": "", "show_simulator": false,
                                        "backup_dir": .string(ProcessInfo.processInfo.arguments.contains("-fixture-backup-failed") ? "/Volumes/Backup/Loft backups" : "")]
     /// Settings PUT so far, for tests to check what went to the server.
     public private(set) var settingsPut: [JSONValue] = []
@@ -1015,6 +1016,66 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
     public func unpairAll() async throws {
         try check()
         locked { clients.removeAll { !$0.this } }
+    }
+
+    /// Three repos in the projects folder, one with local changes, and their open PRs and issues.
+    public func repos() async throws -> [RepoSummary] {
+        try check()
+        func daily(_ k: Int) -> [Int] { (0..<182).map { ($0 * k) % 7 == 0 ? k % 4 + 1 : ($0 % 5 == 0 ? 1 : 0) } }
+        return [RepoSummary(name: "loft", path: "/Users/me/dev/loft", branch: "main", ahead: 0, behind: 0, staged: 0, modified: 2, untracked: 1,
+                            totalCommits: 1840, daily: daily(3), error: nil),
+                RepoSummary(name: "api", path: "/Users/me/dev/api", branch: "main", ahead: 1, behind: 0, staged: 0, modified: 0, untracked: 0,
+                            totalCommits: 5210, daily: daily(2), error: nil),
+                RepoSummary(name: "site", path: "/Users/me/dev/site", branch: "main", ahead: 0, behind: 0, staged: 0, modified: 0, untracked: 0,
+                            totalCommits: 96, daily: daily(5), error: nil)]
+    }
+
+    public func repoGithub() async throws -> [String: RepoGithub] {
+        try check()
+        func item(_ n: Int, _ title: String, _ hoursAgo: Double, draft: Bool = false) -> RepoGithub.Item {
+            .init(number: n, title: title, author: "loft-dev", url: "https://github.com/Octo/loft/pull/\(n)", draft: draft, updatedAt: Date(timeIntervalSinceNow: -hoursAgo * 3600))
+        }
+        return ["loft": RepoGithub(slug: "Octo/loft", pulls: [item(383, "Loft for Mac", 1), item(401, "Mirror: keep the link", 26, draft: true)],
+                                   issues: [item(387, "Mac app: Overview, Needs you and Settings", 3)], error: nil),
+                "api": RepoGithub(slug: "acme/api", pulls: [item(1765, "Scope menu discounts to the restaurant", 5)], issues: [], error: nil)]
+    }
+
+    public func agentsTotals() async throws -> AgentsTotals {
+        try check()
+        return AgentsTotals(period: .init(kind: "usage_week", runs: 212, costUsd: 148.2, previous: .init(runs: 180, costUsd: 121.7)),
+                            allTime: .init(runs: 9_431, costUsd: 4_210.55))
+    }
+
+    /// Settings as `GET /api/settings` sends them: a saved token, and nothing waiting for a restart until the projects
+    /// folder changes.
+    private var savedProjectsDir = "/Users/me/dev"
+    public func settingsView() async throws -> JSONValue {
+        _ = try await serverSettings()
+        return locked {
+            let pending: [JSONValue] = settings["projects_dir"]?.stringValue == savedProjectsDir ? [] : ["projects_dir"]
+            return ["settings": settings, "github_token_set": true, "restart_fields": .array(["projects_dir"]), "pending_restart": .array(pending),
+                    "running_agents": .number(0)]
+        }
+    }
+
+    public func restart() async throws {
+        try check()
+        locked { savedProjectsDir = settings["projects_dir"]?.stringValue ?? savedProjectsDir }
+    }
+
+    public func githubBudget() async throws -> JSONValue {
+        try check()
+        let reset = JSONValue.number(Date(timeIntervalSinceNow: 1800).timeIntervalSince1970)
+        return ["resources": ["core": ["limit": .number(5000), "remaining": .number(4210), "reset": reset],
+                              "graphql": ["limit": .number(5000), "remaining": .number(4980), "reset": reset]],
+                "by_source": ["prs": ["requests": .number(412), "not_modified": .number(380)], "mirror": ["requests": .number(120), "not_modified": .number(64)]]]
+    }
+
+    public func macAccess() async throws -> JSONValue {
+        try check()
+        return ["items": .array([["id": "desktop", "label": "Desktop", "folder": "~/Desktop", "state": "allowed"],
+                                 ["id": "documents", "label": "Documents", "folder": "~/Documents", "state": "allowed"],
+                                 ["id": "full_disk", "label": "Full Disk Access", "folder": "", "state": "allowed"]])]
     }
 
     /// The Mac's backups: one this morning; with `-fixture-backup-failed`, none since two days ago and the error.
@@ -1168,7 +1229,7 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
             out.append(AgentSummary(agent: a, days: 14, dailyAuto: auto, dailyUser: user, toolCalls: 120 * (i + 1),
                                     userMessages: 9 + i, memories: 3 + i, pendingPermissions: a.status == "waiting" ? 1 : 0,
                                     lastError: a.status == "error" ? "Link checker crashed" : nil, lastReply: nil,
-                                    topTools: tools, prs: .init(total: 6 - i, open: i % 2, merged: 5 - i)))
+                                    topTools: tools, prs: .init(total: 6 - i, open: i % 2, merged: 5 - i), costUsd: Double(9 + i * 7) + 0.42))
         }
         return out
     }

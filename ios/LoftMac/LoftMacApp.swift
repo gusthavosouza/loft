@@ -186,6 +186,7 @@ struct MainWindow: View {
             List(selection: Binding(get: { nav.section }, set: { if let s = $0 { nav.section = s } })) {
                 ForEach(MacSection.allCases) { s in
                     Label(s.title, systemImage: s.symbol).tag(s).accessibilityIdentifier("section-\(s.title)")
+                        .badge(s == .needsYou ? store.needsYou?.count ?? 0 : 0)
                 }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
@@ -203,10 +204,10 @@ struct MainWindow: View {
             }
         } detail: {
             switch nav.section {
+            case .overview: OverviewSection()
             case .agents: AgentsSection()
-            case .settings:
-                ScrollView { AddressForm(isOnboarding: false).frame(maxWidth: 560).padding(24) }
-                    .navigationTitle("Settings")
+            case .needsYou: NeedsYouScreen()
+            case .settings: SettingsSection()
             default:
                 ContentUnavailableView(nav.section.title, systemImage: nav.section.symbol,
                                        description: Text("Coming to Loft for Mac soon. Use the web app for it meanwhile."))

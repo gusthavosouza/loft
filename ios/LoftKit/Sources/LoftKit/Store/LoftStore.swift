@@ -1108,6 +1108,15 @@ public final class LoftStore {
     public func pairedClients() async throws -> [PairedClient] { try await requireWrite().pairedClients() }
     public func forgetClient(id: String) async throws { try await requireWrite().forgetClient(id: id) }
     public func unpairAll() async throws { try await requireWrite().unpairAll() }
+    public func repos() async throws -> [RepoSummary] { try await requireWrite().repos() }
+    public func repoGithub() async throws -> [String: RepoGithub] { try await requireWrite().repoGithub() }
+    public func agentsTotals() async throws -> AgentsTotals { try await requireWrite().agentsTotals() }
+    public func settingsView() async throws -> JSONValue { try await requireWrite().settingsView() }
+    /// Saves only `changes`: the server keeps every key left out, and an absent `github_token` keeps the saved one.
+    public func saveSettings(_ changes: [String: JSONValue]) async throws { _ = try await requireWrite().putServerSettings(.object(changes)) }
+    public func restart() async throws { try await requireWrite().restart() }
+    public func githubBudget() async throws -> JSONValue { try await requireWrite().githubBudget() }
+    public func macAccess() async throws -> JSONValue { try await requireWrite().macAccess() }
 
     /// Saves the two GitHub issues settings, leaving the server's other settings as they are.
     public func saveIssueSettings(_ s: IssueSettings) async throws {
