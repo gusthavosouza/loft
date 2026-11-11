@@ -993,6 +993,10 @@ public final class LoftStore {
     }
     public func runNow(_ agentId: String) async throws { try await requireWrite().runNow(agentId: agentId) }
     /// Fresh context for each Delivery ticket: "off", "above_80k" … "above_200k" or "always".
+    /// Saves an agent's settings (`PATCH /agents/{id}` with the fields that changed, as the web's settings tab).
+    public func updateAgent(_ agentId: String, _ fields: [String: JSONValue]) async throws {
+        upsert(&agents, try await requireWrite().updateAgent(id: agentId, fields))
+    }
     public func setFreshContext(_ agentId: String, _ value: String) async throws {
         upsert(&agents, try await requireWrite().updateAgent(id: agentId, ["fresh_context": .string(value)]))
     }

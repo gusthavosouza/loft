@@ -610,6 +610,14 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
         return try locked {
             guard let i = agentList.firstIndex(where: { $0.id == id }) else { throw APIError.server(status: 404, message: "Not Found") }
             if case .string(let f)? = fields["fresh_context"] { agentList[i].freshContext = f }
+            if case .string(let v)? = fields["name"] { agentList[i].name = v }
+            if case .string(let v)? = fields["title"] { agentList[i].title = v }
+            if case .string(let v)? = fields["group"] { agentList[i].group = v }
+            if case .string(let v)? = fields["prompt"] { agentList[i].prompt = v }
+            if case .string(let v)? = fields["model"] { agentList[i].model = v }
+            if case .string(let v)? = fields["effort"] { agentList[i].effort = v }
+            if case .string(let v)? = fields["permission_mode"] { agentList[i].permissionMode = v }
+            if case .number(let v)? = fields["interval_minutes"] { agentList[i].intervalMinutes = Int(v) }
             return agentList[i]
         }
     }

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000061 /* LoftKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000071 /* LoftKit */; };
+		A10000000000000000000062 /* LoftKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000072 /* LoftKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,6 +26,13 @@
 			remoteGlobalIDString = A10000000000000000000101;
 			remoteInfo = Loft;
 		};
+		A10000000000000000000203 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000104;
+			remoteInfo = LoftMac;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +41,9 @@
 		A10000000000000000000013 /* LoftUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LoftUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000015 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		A10000000000000000000016 /* LoftMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LoftMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000017 /* LoftMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LoftMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000018 /* LoftMac-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "LoftMac-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -51,9 +62,34 @@
 			path = LoftUITests;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000024 /* LoftMac */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LoftMac;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000025 /* LoftMacUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LoftMacUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000034 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000062 /* LoftKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000035 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000031 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -85,6 +121,8 @@
 				A10000000000000000000021 /* Loft */,
 				A10000000000000000000022 /* LoftTests */,
 				A10000000000000000000023 /* LoftUITests */,
+				A10000000000000000000024 /* LoftMac */,
+				A10000000000000000000025 /* LoftMacUITests */,
 				A10000000000000000000004 /* Config */,
 				A10000000000000000000003 /* Products */,
 			);
@@ -96,6 +134,8 @@
 				A10000000000000000000011 /* Loft.app */,
 				A10000000000000000000012 /* LoftTests.xctest */,
 				A10000000000000000000013 /* LoftUITests.xctest */,
+				A10000000000000000000016 /* LoftMac.app */,
+				A10000000000000000000017 /* LoftMacUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -105,6 +145,7 @@
 			children = (
 				A10000000000000000000014 /* Info.plist */,
 				A10000000000000000000015 /* Signing.xcconfig */,
+				A10000000000000000000018 /* LoftMac-Info.plist */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -112,6 +153,50 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A10000000000000000000104 /* LoftMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000404 /* Build configuration list for PBXNativeTarget "LoftMac" */;
+			buildPhases = (
+				A10000000000000000000044 /* Sources */,
+				A10000000000000000000034 /* Frameworks */,
+				A10000000000000000000054 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000024 /* LoftMac */,
+			);
+			name = LoftMac;
+			packageProductDependencies = (
+				A10000000000000000000072 /* LoftKit */,
+			);
+			productName = LoftMac;
+			productReference = A10000000000000000000016 /* LoftMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A10000000000000000000105 /* LoftMacUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000405 /* Build configuration list for PBXNativeTarget "LoftMacUITests" */;
+			buildPhases = (
+				A10000000000000000000045 /* Sources */,
+				A10000000000000000000035 /* Frameworks */,
+				A10000000000000000000055 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000000303 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000025 /* LoftMacUITests */,
+			);
+			name = LoftMacUITests;
+			productName = LoftMacUITests;
+			productReference = A10000000000000000000017 /* LoftMacUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		A10000000000000000000101 /* Loft */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000401 /* Build configuration list for PBXNativeTarget "Loft" */;
@@ -198,6 +283,13 @@
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = A10000000000000000000101;
 					};
+					A10000000000000000000104 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					A10000000000000000000105 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = A10000000000000000000104;
+					};
 				};
 			};
 			buildConfigurationList = A10000000000000000000400 /* Build configuration list for PBXProject "Loft" */;
@@ -220,11 +312,27 @@
 				A10000000000000000000101 /* Loft */,
 				A10000000000000000000102 /* LoftTests */,
 				A10000000000000000000103 /* LoftUITests */,
+				A10000000000000000000104 /* LoftMac */,
+				A10000000000000000000105 /* LoftMacUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A10000000000000000000054 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000055 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000051 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -249,6 +357,20 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000044 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000045 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000041 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -273,6 +395,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A10000000000000000000303 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000104 /* LoftMac */;
+			targetProxy = A10000000000000000000203 /* PBXContainerItemProxy */;
+		};
 		A10000000000000000000301 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A10000000000000000000101 /* Loft */;
@@ -286,6 +413,100 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A10000000000000000000541 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/LoftMac-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Loft;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LOFT_BUNDLE_ID:default=com.example.loft).mac";
+				PRODUCT_MODULE_NAME = LoftMac;
+				PRODUCT_NAME = Loft;
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A10000000000000000000551 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LOFT_BUNDLE_ID:default=com.example.loft).mac.uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = LoftMac;
+			};
+			name = Debug;
+		};
+		A10000000000000000000542 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/LoftMac-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Loft;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LOFT_BUNDLE_ID:default=com.example.loft).mac";
+				PRODUCT_MODULE_NAME = LoftMac;
+				PRODUCT_NAME = Loft;
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A10000000000000000000552 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LOFT_BUNDLE_ID:default=com.example.loft).mac.uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = LoftMac;
+			};
+			name = Release;
+		};
 		A10000000000000000000501 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A10000000000000000000015 /* Signing.xcconfig */;
@@ -471,6 +692,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A10000000000000000000404 /* Build configuration list for PBXNativeTarget "LoftMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000541 /* Debug */,
+				A10000000000000000000542 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000405 /* Build configuration list for PBXNativeTarget "LoftMacUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000551 /* Debug */,
+				A10000000000000000000552 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A10000000000000000000400 /* Build configuration list for PBXProject "Loft" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -517,6 +756,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A10000000000000000000072 /* LoftKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LoftKit;
+		};
 		A10000000000000000000071 /* LoftKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = LoftKit;
