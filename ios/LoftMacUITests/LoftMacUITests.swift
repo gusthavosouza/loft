@@ -121,4 +121,51 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertTrue(app.textFields["composerField"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textFields["composerField"].placeholderValue, "Message QA Agent")
     }
+
+    /// The Issues board: the Issues column first, All / Issues / Specs, a spec's page with its tickets, and Start
+    /// delivery on a spec that waits for one.
+    func testIssuesBoardFilterOpensASpecAndStartsDelivery() {
+        launch(["-ui-testing", "-fixture-specs"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("3", modifierFlags: .command)
+        let issues = app.descendants(matching: .any)["boardColumn-issues"]
+        let planned = app.descendants(matching: .any)["boardColumn-planned"]
+        XCTAssertTrue(issues.waitForExistence(timeout: 10))
+        XCTAssertTrue(planned.exists)
+        XCTAssertLessThan(issues.frame.minX, planned.frame.minX, "the Issues column comes first")
+        XCTAssertTrue(card("issueCard-Renew the domain").exists, "an issue that is no spec's ticket")
+        XCTAssertFalse(card("issueCard-Implement backend endpoints").exists, "a spec's ticket stays with its spec")
+        XCTAssertTrue(card("specCard-Offline mode").exists)
+        shot("Issues board")
+
+        let type = app.radioGroups["boardType"]
+        type.radioButtons["Specs"].click()
+        XCTAssertTrue(issues.waitForNonExistence(timeout: 5), "Specs hides the Issues column")
+        XCTAssertTrue(card("specCard-Implement settings functionality").exists)
+        type.radioButtons["Issues"].click()
+        XCTAssertTrue(planned.waitForNonExistence(timeout: 5), "Issues hides the spec columns")
+        XCTAssertTrue(card("issueCard-Renew the domain").exists)
+        type.radioButtons["All"].click()
+
+        // A spec in Delivery: its state, who has which ticket, its progress and its tickets.
+        card("specCard-Implement settings functionality").click()
+        XCTAssertTrue(card("deliveryState").waitForExistence(timeout: 10))
+        XCTAssertEqual(card("deliveryProgress").label, "1 of 5 tickets done")
+        for t in ["Backend endpoints", "iOS screen", "Docs", "QA"] { XCTAssertTrue(card("ticketRow-\(t)").exists, t) }
+        XCTAssertFalse(card("delivery-start").exists, "it started")
+        shot("Spec page")
+        app.typeKey("[", modifierFlags: .command)
+
+        // A spec that waits: Start delivery starts it.
+        XCTAssertTrue(card("specCard-Offline mode").waitForExistence(timeout: 5))
+        card("specCard-Offline mode").click()
+        let start = app.buttons["delivery-start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        start.click()
+        XCTAssertTrue(card("deliveryRunning").waitForExistence(timeout: 10), "the card says who has the first ticket")
+        XCTAssertFalse(start.exists)
+        shot("Delivery started")
+    }
+
+    private func card(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
 }
