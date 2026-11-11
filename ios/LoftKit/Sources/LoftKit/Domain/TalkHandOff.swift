@@ -12,8 +12,11 @@ public enum TalkHandOff {
         case sentToChat
     }
 
-    public static func outcome(phase: VoiceSession.Phase, autoSendAt: Date?) -> Outcome {
-        switch phase {
+    /// `listened`: this sheet has started listening. The shared session can still be `.replied` or `.speaking` from a
+    /// Talk before it, and that is not this sheet's send.
+    public static func outcome(phase: VoiceSession.Phase, autoSendAt: Date?, listened: Bool) -> Outcome {
+        guard listened else { return .stay }
+        return switch phase {
         case .review: autoSendAt == nil ? .textToChat : .stay
         case .sending, .speaking, .replied: .sentToChat
         default: .stay
@@ -22,7 +25,7 @@ public enum TalkHandOff {
 
     /// Phases in which closing the sheet throws the dictation away. After a send the session goes on reading the reply.
     public static func discardsOnClose(_ phase: VoiceSession.Phase) -> Bool {
-        switch phase {
+        return switch phase {
         case .preparing, .listening, .paused, .cleaning, .review: true
         default: false
         }

@@ -13,6 +13,8 @@ struct TalkSheet: View {
     /// The chat to show now, and the tidied text for its message box when it wasn't sent.
     let done: (_ agentId: String, _ text: String?) -> Void
     @State private var picking = false
+    /// This sheet's own session has started listening (see `TalkHandOff.outcome`).
+    @State private var listened = false
 
     private var current: String { voice.agentId ?? agentId }
 
@@ -49,9 +51,10 @@ struct TalkSheet: View {
         .padding(20)
         .frame(width: 520, height: 400)
         .task { await voice.start(agentId: agentId) }
-        .onChange(of: voice.phase, initial: true) { _, p in
+        .onChange(of: voice.phase) { _, p in
+            if p == .listening { listened = true }
             let id = current
-            switch TalkHandOff.outcome(phase: p, autoSendAt: voice.autoSendAt) {
+            switch TalkHandOff.outcome(phase: p, autoSendAt: voice.autoSendAt, listened: listened) {
             case .stay: break
             case .textToChat:
                 let text = voice.cleaned ?? voice.raw
