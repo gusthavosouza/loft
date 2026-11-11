@@ -10,8 +10,8 @@ struct TalkSheet: View {
     @Environment(VoiceSession.self) private var voice
     @Environment(\.dismiss) private var dismiss
     let agentId: String
-    /// The tidied text and who it's for, to put in that chat's message box.
-    let done: (String, String) -> Void
+    /// The chat to show now, and the tidied text for its message box when it wasn't sent.
+    let done: (_ agentId: String, _ text: String?) -> Void
     @State private var picking = false
 
     private var current: String { voice.agentId ?? agentId }
@@ -34,27 +34,37 @@ struct TalkSheet: View {
                     .accessibilityIdentifier("talkCancel")
                 Spacer()
                 if case .failed = voice.phase {} else {
-                    Button { Task { await voice.finish() } } label: { Label("Done", systemImage: "mic.fill") }
+                    let ready = !voice.raw.isEmpty && voice.phase == .listening
+                    Button("Edit in chat") { Task { await voice.finish(.review) } }
+                        .disabled(!ready)
+                        .accessibilityIdentifier("talkEdit")
+                    Button { Task { await voice.finish(.send) } } label: { Label("Send", systemImage: "arrow.up.circle.fill") }
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.defaultAction)
-                        .disabled(voice.raw.isEmpty || voice.phase != .listening)
-                        .accessibilityIdentifier("talkDone")
+                        .disabled(!ready)
+                        .accessibilityIdentifier("talkSend")
                 }
             }
         }
         .padding(20)
         .frame(width: 520, height: 400)
         .task { await voice.start(agentId: agentId) }
-        .onChange(of: voice.phase) { _, p in
-            // The tidied text goes to the chat's message box, to read there and send.
-            guard p == .review, voice.autoSendAt == nil else { return }
-            let text = voice.cleaned ?? voice.raw
+        .onChange(of: voice.phase, initial: true) { _, p in
             let id = current
-            voice.discard()
-            done(text, id)
-            dismiss()
+            switch TalkHandOff.outcome(phase: p, autoSendAt: voice.autoSendAt) {
+            case .stay: break
+            case .textToChat:
+                let text = voice.cleaned ?? voice.raw
+                voice.discard()
+                done(id, text)
+                dismiss()
+            case .sentToChat:
+                // The session goes on: it reads the reply.
+                done(id, nil)
+                dismiss()
+            }
         }
-        .onDisappear { if voice.isActive { voice.discard() } }
+        .onDisappear { if TalkHandOff.discardsOnClose(voice.phase) { voice.discard() } }
     }
 
     // MARK: To: row
@@ -117,8 +127,12 @@ struct TalkSheet: View {
                 Button("Open System Settings") { NSWorkspace.shared.open(TalkPermission.settingsURL(for: message)) }
                     .accessibilityIdentifier("talkOpenSettings")
             }
-            Button("Try again") { Task { await voice.start(agentId: current) } }
-                .accessibilityIdentifier("talkRetry")
+            if voice.failedSend != nil {
+                // The message is kept; one click sends it again.
+                Button("Retry sending") { Task { await voice.retrySend() } }.accessibilityIdentifier("talkRetrySend")
+            } else {
+                Button("Try again") { Task { await voice.start(agentId: current) } }.accessibilityIdentifier("talkRetry")
+            }
             Spacer(minLength: 0)
         }
     }
@@ -127,8 +141,7 @@ struct TalkSheet: View {
 /// Where System Settings turns access back on, for what the failure says is off.
 enum TalkPermission {
     static func settingsURL(for message: String) -> URL {
-        let pane = message.localizedCaseInsensitiveContains("speech") ? "Privacy_SpeechRecognition" : "Privacy_Microphone"
-        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!
+        URL(string: "x-apple.systempreferences:com.apple.preference.security?\(TalkHandOff.privacyPane(for: message))")!
     }
 }
 

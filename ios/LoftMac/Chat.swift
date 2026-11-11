@@ -1,3 +1,4 @@
+import AppKit
 import LoftKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -91,10 +92,12 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $talking) {
-            TalkSheet(agentId: agent.id) { text, id in
+            TalkSheet(agentId: agent.id) { id, text in
                 nav.openChat(id)
-                draft = text
-                draftByVoice = true
+                if let text {
+                    draft = text
+                    draftByVoice = true
+                }
             }
         }
         .task(id: askingMessage?.id) {
@@ -250,6 +253,10 @@ private struct Composer: View {
     @State private var dictationBase = ""
     @State private var holdTimer: Task<Void, Never>?
     @State private var holding = false
+    /// The mouse is still down.
+    @State private var pressing = false
+    /// This press only stopped a dictation: its release isn't a click for Talk.
+    @State private var ignoreRelease = false
     @FocusState private var focused: Bool
 
     private var mentions: [(title: String, agents: [Agent])]? {
@@ -324,6 +331,11 @@ private struct Composer: View {
         }
         .padding(12)
         .onAppear { focused = true }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            // Switching away (or a system prompt) can swallow the mouse-up: the mic never stays on behind another app.
+            pressing = false
+            if dictation.state.isRecording { stopDictation() }
+        }
         .onChange(of: dictation.transcript) { _, t in
             guard dictation.state.isRecording, !t.isEmpty else { return }
             text = VoiceText.join([dictationBase, t])
@@ -356,14 +368,26 @@ private struct Composer: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { talk() }
                 .accessibilityIdentifier("micButton")
-            if let message = dictation.state.message {
+            if !dictation.state.isRecording, let message = dictation.state.message {
                 Text(message).font(.caption2).foregroundStyle(.red).frame(maxWidth: 220, alignment: .trailing)
                     .accessibilityIdentifier("dictationMessage")
+                if case .denied = dictation.state {
+                    Button("Open System Settings") { NSWorkspace.shared.open(TalkPermission.settingsURL(for: message)) }
+                        .font(.caption2).buttonStyle(.link)
+                        .accessibilityIdentifier("dictationOpenSettings")
+                }
             }
         }
     }
 
     private func pressed() {
+        if dictation.state.isRecording {
+            // A click while dictating stops it, so a lost mouse-up (a permission prompt) can't leave it on.
+            stopDictation()
+            ignoreRelease = true
+            return
+        }
+        pressing = true
         holdTimer?.cancel()
         holdTimer = Task {
             try? await Task.sleep(for: .milliseconds(350))
@@ -371,19 +395,27 @@ private struct Composer: View {
             holding = true
             dictationBase = text
             await dictation.start()
+            // Let go while the permission prompt or the microphone was starting.
+            if !pressing { stopDictation() }
         }
     }
 
     /// Let go: after the hold time that ends the dictation, before it the press was a click, which opens Talk.
     private func released() {
+        pressing = false
+        if ignoreRelease { ignoreRelease = false; return }
         holdTimer?.cancel()
         holdTimer = nil
         if holding {
-            holding = false
-            dictation.stop()
+            stopDictation()
         } else {
             talk()
         }
+    }
+
+    private func stopDictation() {
+        holding = false
+        dictation.stop()
     }
 
     /// Return: picks the first suggestion while the @ or # list shows, otherwise sends.
