@@ -97,13 +97,15 @@ enum MacSection: Int, CaseIterable, Identifiable {
     }
 }
 
-/// Where the window is: the section, the agent whose chat is open, and the New message picker.
+/// Where the window is: the section, the agent whose chat is open, the issue pages open, and the New message picker.
 @MainActor
 @Observable
 final class MacNav {
     var section: MacSection = .agents
     var agentId: String?
     var picksRecipient = false
+    /// The issue pages open in the Issues section, from the board's card on.
+    var issuePath: [String] = []
 
     func openChat(_ agentId: String) {
         section = .agents
@@ -132,6 +134,10 @@ struct LoftCommands: Commands {
                 Button(s.title) { nav.section = s }
                     .keyboardShortcut(KeyEquivalent(Character(String(s.rawValue))))
             }
+            Divider()
+            Button("Back") { nav.issuePath.removeLast() }
+                .keyboardShortcut("[")
+                .disabled(nav.section != .issues || nav.issuePath.isEmpty)
         }
     }
 }
@@ -217,6 +223,7 @@ struct MainWindow: View {
         } detail: {
             switch nav.section {
             case .agents: AgentsSection()
+            case .issues: IssuesSection()
             case .settings:
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
