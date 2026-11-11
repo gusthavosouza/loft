@@ -98,7 +98,7 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertNotEqual(withTag, "@Backend Agent please check #")
 
         field.typeText("\r")
-        let sent = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "@Backend Agent please check #")).firstMatch
+        let sent = app.descendants(matching: .any).matching(identifier: "userMessage").matching(NSPredicate(format: "label CONTAINS %@", "@Backend Agent please check #")).firstMatch
         XCTAssertTrue(sent.waitForExistence(timeout: 10))
         XCTAssertEqual(field.value as? String, "")
         shot("Sent with @ and #")

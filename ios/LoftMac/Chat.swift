@@ -85,9 +85,20 @@ private struct MessageRow: View {
                 }
                 if !isUser { Spacer(minLength: 80) }
             }
-            .accessibilityElement(children: .combine)
+            // Selectable text isn't read by a combined element, so the label says it.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spoken)
             .accessibilityIdentifier(isUser ? "userMessage" : "agentMessage")
         }
+    }
+
+    private var spoken: String {
+        var parts: [String] = []
+        if let from = message.fromAgentName { parts.append(message.isMentionReply ? "\(from), answering your mention" : "From \(from)") }
+        if !message.photos.isEmpty { parts.append(message.photos.count == 1 ? "Image" : "\(message.photos.count) images") }
+        parts.append(message.displayContent)
+        parts.append(message.createdAt.formatted(date: .omitted, time: .shortened))
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     static func markdown(_ s: String) -> AttributedString {

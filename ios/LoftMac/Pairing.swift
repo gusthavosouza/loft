@@ -42,9 +42,10 @@ struct AddressForm: View {
                     Label("Can't reach Loft at \(url?.absoluteString ?? address)", systemImage: "xmark.octagon.fill")
                         .foregroundStyle(.red)
                         .accessibilityIdentifier("connectError")
-                    Text("\(failure.title). Check that Loft is running there and the address is right. \(failure.suggestion)")
+                    Text("\(failure.title). Check that Loft is running there and the address is right.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)

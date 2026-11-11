@@ -32,10 +32,12 @@ struct LoftMacApp: App {
             MacRootView()
                 .environment(store)
                 .environment(nav)
-                .frame(minWidth: 820, minHeight: 520)
+                .frame(minWidth: 1100, minHeight: 640)
                 .onAppear { store.activate() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in store.saveNow() }
         }
+        // Room for the sidebar, the agents, the chat and the agent's settings side by side.
+        .defaultSize(width: 1280, height: 800)
         .commands { LoftCommands(nav: nav) }
 
         Settings {
@@ -146,7 +148,7 @@ struct UnreachableScreen: View {
             Text("Can't reach Loft").font(.title2.bold()).accessibilityIdentifier("unreachableTitle")
             Text("Nothing answered at \(store.api?.baseURL.absoluteString ?? "the saved address"). Check that Loft is running on that Mac, or change the address.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
-            Text("\(error.title). \(error.suggestion)").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(error.title).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
             HStack {
                 Button("Try again") { store.reconnect() }.keyboardShortcut(.defaultAction)
                 Button("Change address…") { store.forgetServer() }
