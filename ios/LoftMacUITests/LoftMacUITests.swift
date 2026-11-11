@@ -108,6 +108,43 @@ final class LoftMacUITests: XCTestCase {
         shot("Sent with @ and #")
     }
 
+    /// Settings › Apple Intelligence on the fixture model status: unavailable says why and disables the switches;
+    /// available enables them.
+    func testAppleIntelligenceSettingsFollowTheModelStatus() {
+        launch(["-ui-testing", "-fixture-ai-status", "off"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("5", modifierFlags: .command)
+        let status = app.staticTexts["onDeviceModelStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["onDeviceModelStatus"].exists)
+        XCTAssertFalse(app.checkBoxes["aiRouteToggle"].isEnabled)
+        shot("Apple Intelligence off")
+        app.terminate()
+        launch(["-ui-testing", "-fixture-ai-status", "available"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("5", modifierFlags: .command)
+        XCTAssertTrue(app.checkBoxes["aiRouteToggle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.checkBoxes["aiRouteToggle"].isEnabled)
+        XCTAssertTrue(app.checkBoxes["aiChatRepliesToggle"].isEnabled)
+        shot("Apple Intelligence available")
+    }
+
+    /// Clicking the chat's mic opens Talk with that agent in To:; Cancel returns to the chat.
+    func testMicOpensTalkWithTheAgent() {
+        launch(["-ui-testing", "-no-speech"])
+        let list = app.outlines["agentsList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        list.cells.containing(.any, identifier: "agentRow-Orchestrator").firstMatch.click()
+        let mic = app.descendants(matching: .any)["micButton"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 10))
+        mic.click()
+        XCTAssertTrue(app.buttons["talkCancel"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["talkTo-Orchestrator"].exists, "the agent is in To:")
+        shot("Talk")
+        app.buttons["talkCancel"].click()
+        XCTAssertTrue(app.textFields["composerField"].waitForExistence(timeout: 5))
+    }
+
     /// ⌘N opens New message, and picking an agent opens its chat.
     func testNewMessageShortcut() {
         launch(["-ui-testing"])

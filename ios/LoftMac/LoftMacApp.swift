@@ -5,7 +5,9 @@ import SwiftUI
 @main
 struct LoftMacApp: App {
     @State private var store: LoftStore
-    @State private var nav = MacNav()
+    @State private var nav: MacNav
+    @State private var alerts: MacAlerts
+    @State private var voice: VoiceSession
 
     init() {
         Prefs.registerDefaults()
@@ -13,6 +15,10 @@ struct LoftMacApp: App {
         // Live from launch: the menu bar item needs it with the window closed.
         store.activate()
         _store = State(initialValue: store)
+        let nav = MacNav()
+        _nav = State(initialValue: nav)
+        _alerts = State(initialValue: MacAlerts(store: store, nav: nav))
+        _voice = State(initialValue: VoiceSession(store: store))
     }
 
     private static func makeAPI() -> LoftAPI? {
@@ -35,8 +41,11 @@ struct LoftMacApp: App {
             MacRootView()
                 .environment(store)
                 .environment(nav)
+                .environment(voice)
                 .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
+                // A tap on a widget.
+                .onOpenURL { url in if let link = DeepLink(url: url) { nav.open(link) } }
                 #if DEBUG
                 .task {
                     let args = ProcessInfo.processInfo.arguments
@@ -49,7 +58,7 @@ struct LoftMacApp: App {
         .defaultSize(width: 1400, height: 860)
         .commands { LoftCommands(nav: nav) }
 
-        MenuBarExtra { MenuBarContent().environment(store).environment(nav) } label: { MenuBarLabel().environment(store) }
+        MenuBarExtra { MenuBarContent().environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts).environment(store) }
             .menuBarExtraStyle(.window)
 
         Settings {
@@ -101,6 +110,14 @@ final class MacNav {
     func openChat(_ agentId: String) {
         section = .agents
         self.agentId = agentId
+    }
+
+    func open(_ link: DeepLink) {
+        switch link {
+        case .needsYou: section = .needsYou
+        case .agents: section = .agents
+        case .agent(let id): openChat(id)
+        }
     }
 }
 
@@ -208,7 +225,13 @@ struct MainWindow: View {
             case .agents: AgentsSection()
             case .issues: IssuesSection()
             case .settings:
-                ScrollView { AddressForm(isOnboarding: false).frame(maxWidth: 560).padding(24) }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        AddressForm(isOnboarding: false)
+                        AppleIntelligenceSection()
+                    }
+                    .frame(maxWidth: 560).padding(24)
+                }
                     .navigationTitle("Settings")
             default:
                 ContentUnavailableView(nav.section.title, systemImage: nav.section.symbol,

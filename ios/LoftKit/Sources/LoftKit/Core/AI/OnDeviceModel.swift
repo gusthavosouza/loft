@@ -25,14 +25,22 @@ public enum OnDeviceModel {
         public var text: String {
             switch self {
             case .available: "Available"
-            case .appleIntelligenceOff: "Turned off in Settings › Apple Intelligence & Siri"
-            case .deviceNotEligible: "This iPhone doesn't support it"
+            case .appleIntelligenceOff: "Turned off in \(Platform.settingsApp) › Apple Intelligence & Siri"
+            case .deviceNotEligible: "This \(Platform.deviceName) doesn't support it"
             case .modelNotReady: "Getting ready (downloading)"
             case .languageNotSupported(let language): "Not available in \(language)"
             case .unavailable(let reason): "Unavailable (\(reason))"
-            case .needsNewerSystem: "Needs iOS 26 or later"
+            case .needsNewerSystem: "Needs \(Platform.systemName) 26 or later"
             }
         }
+    }
+
+    private enum Platform {
+        #if os(macOS)
+        static let settingsApp = "System Settings", deviceName = "Mac", systemName = "macOS"
+        #else
+        static let settingsApp = "Settings", deviceName = "iPhone", systemName = "iOS"
+        #endif
     }
 
     /// Read fresh on every call, so a feature turns on as soon as the model is ready, without a relaunch.

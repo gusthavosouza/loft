@@ -1,3 +1,4 @@
+import AppKit
 import LoftKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -5,8 +6,25 @@ import UniformTypeIdentifiers
 /// An agent's chat: its messages as they arrive, and the composer.
 struct ChatView: View {
     @Environment(LoftStore.self) private var store
+    @Environment(MacNav.self) private var nav
     let agent: Agent
     @State private var loadError: APIError?
+    @State private var draft = ""
+    @State private var talking = false
+    /// The text came from Talk, so the reply is read aloud once it's sent.
+    @State private var draftByVoice = false
+    /// The on-device model's replies to the agent's latest message, when it ends on a question.
+    @State private var suggested: (messageId: Int64, replies: [String])?
+    /// "Send to …?": the model thinks the message just sent to the Lead was meant for another agent.
+    @State private var route: (text: String, agentId: String)?
+
+    /// The agent's latest message, when it's the last word in the chat and ends on a question.
+    private var askingMessage: ChatMessage? {
+        guard store.pending(for: agent.id).isEmpty,
+              let m = store.conversation(agent.id).last(where: { $0.kind == "text" || $0.role == "user" }),
+              m.role == "assistant", m.kind == "text", ChatReplies.asksSomething(m.displayContent) else { return nil }
+        return m
+    }
 
     /// What the chat shows: the conversation's text, errors, notices and photos (not tool calls or thinking).
     private var shown: [ChatMessage] {
@@ -37,7 +55,56 @@ struct ChatView: View {
                 }
             }
             Divider()
-            Composer(agent: agent)
+            if let s = suggested, s.messageId == askingMessage?.id, draft.isEmpty, !s.replies.isEmpty {
+                HStack {
+                    ForEach(s.replies, id: \.self) { r in
+                        Button(r) { draft = r }.buttonStyle(.bordered).controlSize(.small)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 12).padding(.top, 8)
+                .accessibilityIdentifier("chatSuggestions")
+            }
+            if let r = route, let target = store.agent(r.agentId) {
+                HStack {
+                    Label("Send to \(target.name) too?", systemImage: "arrow.turn.up.right").font(.footnote)
+                    Spacer()
+                    Button("Send") { route = nil; Task { await store.send(r.text, to: r.agentId) } }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                        .accessibilityIdentifier("routeSend")
+                    Button { route = nil } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .accessibilityLabel("Not now")
+                        .accessibilityIdentifier("routeDismiss")
+                }
+                .padding(.horizontal, 12).padding(.top, 8)
+                .accessibilityIdentifier("routeSuggestion")
+            }
+            Composer(agent: agent, text: $draft, dictated: $draftByVoice, talk: { talking = true }) { sent in
+                route = nil
+                guard store.orchestratorId == agent.id, #available(macOS 26.0, *) else { return }
+                let id = agent.id
+                Task {
+                    guard let target = await OnDeviceFeatures.routeGuess(for: sent, agents: store.agents, orchestratorId: store.orchestratorId),
+                          agent.id == id else { return }
+                    route = (sent, target.id)
+                }
+            }
+        }
+        .sheet(isPresented: $talking) {
+            TalkSheet(agentId: agent.id) { id, text in
+                nav.openChat(id)
+                if let text {
+                    draft = text
+                    draftByVoice = true
+                }
+            }
+        }
+        .task(id: askingMessage?.id) {
+            guard let m = askingMessage, suggested?.messageId != m.id else { return }
+            let replies = await OnDeviceFeatures.chatReplies(to: m.displayContent)
+            guard !Task.isCancelled else { return }
+            suggested = (m.id, replies)
         }
         .task(id: agent.id) {
             do { try await store.loadConversation(agent.id); loadError = nil } catch { loadError = APIError.from(error) }
@@ -172,9 +239,24 @@ private struct Attachment: Identifiable {
 private struct Composer: View {
     @Environment(LoftStore.self) private var store
     let agent: Agent
-    @State private var text = ""
+    @Environment(VoiceSession.self) private var voice
+    @Binding var text: String
+    /// The message comes from dictation or Talk: its reply is read aloud.
+    @Binding var dictated: Bool
+    /// Opens Talk with this agent.
+    let talk: () -> Void
+    /// Called with the text just sent.
+    var sent: (String) -> Void = { _ in }
     @State private var attachments: [Attachment] = []
     @State private var picksFiles = false
+    @State private var dictation = SpeechTranscriber()
+    @State private var dictationBase = ""
+    @State private var holdTimer: Task<Void, Never>?
+    @State private var holding = false
+    /// The mouse is still down.
+    @State private var pressing = false
+    /// This press only stopped a dictation: its release isn't a click for Talk.
+    @State private var ignoreRelease = false
     @FocusState private var focused: Bool
 
     private var mentions: [(title: String, agents: [Agent])]? {
@@ -238,6 +320,7 @@ private struct Composer: View {
                     .focused($focused)
                     .onSubmit(submit)
                     .accessibilityIdentifier("composerField")
+                micButton
                 Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
                     .buttonStyle(.borderless)
                     .disabled(!canSend)
@@ -248,6 +331,16 @@ private struct Composer: View {
         }
         .padding(12)
         .onAppear { focused = true }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            // Switching away (or a system prompt) can swallow the mouse-up: the mic never stays on behind another app.
+            pressing = false
+            if dictation.state.isRecording { stopDictation() }
+        }
+        .onChange(of: dictation.transcript) { _, t in
+            guard dictation.state.isRecording, !t.isEmpty else { return }
+            text = VoiceText.join([dictationBase, t])
+            dictated = true
+        }
         .fileImporter(isPresented: $picksFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { attach(urls) }
         }
@@ -256,6 +349,73 @@ private struct Composer: View {
             attach(images)
             return !images.isEmpty
         }
+    }
+
+    /// Tap for Talk, hold to dictate into the field (let go to stop).
+    private var micButton: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Image(systemName: dictation.state.isRecording ? "mic.circle.fill" : "mic")
+                .font(dictation.state.isRecording ? .title2 : .body)
+                .foregroundStyle(dictation.state.isRecording ? Color.red : Color.primary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 60, maximumDistance: 40, perform: {}, onPressingChanged: { pressing in
+                    if pressing { pressed() } else { released() }
+                })
+                .help("Click to talk, hold to dictate")
+                .accessibilityLabel("Talk or dictate")
+                .accessibilityHint("Click to talk to \(agent.name). Hold to dictate into the message.")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { talk() }
+                .accessibilityIdentifier("micButton")
+            if !dictation.state.isRecording, let message = dictation.state.message {
+                Text(message).font(.caption2).foregroundStyle(.red).frame(maxWidth: 220, alignment: .trailing)
+                    .accessibilityIdentifier("dictationMessage")
+                if case .denied = dictation.state {
+                    Button("Open System Settings") { NSWorkspace.shared.open(TalkPermission.settingsURL(for: message)) }
+                        .font(.caption2).buttonStyle(.link)
+                        .accessibilityIdentifier("dictationOpenSettings")
+                }
+            }
+        }
+    }
+
+    private func pressed() {
+        if dictation.state.isRecording {
+            // A click while dictating stops it, so a lost mouse-up (a permission prompt) can't leave it on.
+            stopDictation()
+            ignoreRelease = true
+            return
+        }
+        pressing = true
+        holdTimer?.cancel()
+        holdTimer = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            holding = true
+            dictationBase = text
+            await dictation.start()
+            // Let go while the permission prompt or the microphone was starting.
+            if !pressing { stopDictation() }
+        }
+    }
+
+    /// Let go: after the hold time that ends the dictation, before it the press was a click, which opens Talk.
+    private func released() {
+        pressing = false
+        if ignoreRelease { ignoreRelease = false; return }
+        holdTimer?.cancel()
+        holdTimer = nil
+        if holding {
+            stopDictation()
+        } else {
+            talk()
+        }
+    }
+
+    private func stopDictation() {
+        holding = false
+        dictation.stop()
     }
 
     /// Return: picks the first suggestion while the @ or # list shows, otherwise sends.
@@ -275,7 +435,15 @@ private struct Composer: View {
         let message = text, images = attachments.compactMap(\.uploaded)
         text = ""
         attachments = []
-        Task { await store.send(message, to: agent.id, images: images) }
+        sent(message)
+        if dictated {
+            dictated = false
+            Task { await store.sendByVoice(message, to: agent.id, images: images, reads: voice.readReplies) { answer, id in
+                _ = await voice.speaker.readReply(answer, messageId: id, isActive: { true })
+            } }
+        } else {
+            Task { await store.send(message, to: agent.id, images: images) }
+        }
     }
 
     private func attach(_ urls: [URL]) {
