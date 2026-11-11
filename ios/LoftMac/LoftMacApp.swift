@@ -7,6 +7,7 @@ struct LoftMacApp: App {
     @State private var store: LoftStore
     @State private var nav: MacNav
     @State private var alerts: MacAlerts
+    @State private var voice: VoiceSession
 
     init() {
         Prefs.registerDefaults()
@@ -17,6 +18,7 @@ struct LoftMacApp: App {
         let nav = MacNav()
         _nav = State(initialValue: nav)
         _alerts = State(initialValue: MacAlerts(store: store, nav: nav))
+        _voice = State(initialValue: VoiceSession(store: store))
     }
 
     private static func makeAPI() -> LoftAPI? {
@@ -39,6 +41,7 @@ struct LoftMacApp: App {
             MacRootView()
                 .environment(store)
                 .environment(nav)
+                .environment(voice)
                 .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
                 #if DEBUG

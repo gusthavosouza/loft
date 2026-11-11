@@ -9,5 +9,9 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Loft listens when you dictate or talk to an agent.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Loft turns what you say into text for your message.</string>
 </dict>
 </plist>

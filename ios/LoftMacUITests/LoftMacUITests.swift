@@ -129,6 +129,22 @@ final class LoftMacUITests: XCTestCase {
         shot("Apple Intelligence available")
     }
 
+    /// Clicking the chat's mic opens Talk with that agent in To:; Cancel returns to the chat.
+    func testMicOpensTalkWithTheAgent() {
+        launch(["-ui-testing", "-no-speech"])
+        let list = app.outlines["agentsList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        list.cells.containing(.any, identifier: "agentRow-Orchestrator").firstMatch.click()
+        let mic = app.descendants(matching: .any)["micButton"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 10))
+        mic.click()
+        XCTAssertTrue(app.buttons["talkCancel"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["talkTo-Orchestrator"].exists, "the agent is in To:")
+        shot("Talk")
+        app.buttons["talkCancel"].click()
+        XCTAssertTrue(app.textFields["composerField"].waitForExistence(timeout: 5))
+    }
+
     /// ⌘N opens New message, and picking an agent opens its chat.
     func testNewMessageShortcut() {
         launch(["-ui-testing"])
