@@ -7,5 +7,9 @@ let package = Package(
     name: "LoftKit",
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "LoftKit", targets: ["LoftKit"])],
-    targets: [.target(name: "LoftKit")]
+    targets: [
+        .target(name: "LoftKit"),
+        // `swift test` runs these on the Mac: what only the Mac draws or does (the widgets, spec #389).
+        .testTarget(name: "LoftKitTests", dependencies: ["LoftKit"]),
+    ]
 )

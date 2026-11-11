@@ -87,9 +87,23 @@ public struct LoftWidgetView: View {
     }
 }
 
+extension EnvironmentValues {
+    /// False in screenshots: ImageRenderer draws a `Link` as a "prohibited" sign on the Mac.
+    @Entry var widgetLinksTap = true
+}
+
+private struct WidgetLink: ViewModifier {
+    @Environment(\.widgetLinksTap) private var taps
+    let link: DeepLink
+
+    func body(content: Content) -> some View {
+        if taps { Link(destination: link.url) { content }.foregroundStyle(.primary) } else { content }
+    }
+}
+
 private extension View {
     /// A tap opens the app at `link`.
-    func widgetLink(_ link: DeepLink) -> some View { Link(destination: link.url) { self }.foregroundStyle(.primary) }
+    func widgetLink(_ link: DeepLink) -> some View { modifier(WidgetLink(link: link)) }
 }
 
 /// Loft's palette (the Mac menu bar's): lime accent, status colours.

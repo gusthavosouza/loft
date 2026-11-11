@@ -52,7 +52,7 @@ final class WidgetSnapshotTests: XCTestCase {
         for (name, snapshot) in states {
             for (size, points) in [(LoftWidgetView.Size.small, CGSize(width: 158, height: 158)), (.medium, CGSize(width: 338, height: 158))] {
                 let view = LoftWidgetView(snapshot, size: size).padding(16).frame(width: points.width, height: points.height)
-                    .background(Color(white: 0.11)).environment(\.colorScheme, .dark)
+                    .background(Color(white: 0.11)).environment(\.colorScheme, .dark).environment(\.widgetLinksTap, false)
                 let renderer = ImageRenderer(content: view)
                 renderer.scale = 2
                 let png = try XCTUnwrap(renderer.uiImage?.pngData(), "\(name) \(size)")
