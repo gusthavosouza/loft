@@ -67,13 +67,13 @@ started=$(date +%s)
 if [[ "${SKIP_TESTS:-0}" != 1 ]]; then
   sim=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in sorted(d.items(), reverse=True) if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
   # A test that hangs (e.g. waiting on a speech model) fails after 2 minutes instead of blocking the release.
-  step "Running tests" xcodebuild test -project Loft.xcodeproj -scheme Loft -destination "id=$sim" -derivedDataPath build/test \
+  step "Running tests" xcodebuild test -project Loft.xcodeproj -scheme Loft -destination "id=$sim" -derivedDataPath build/test -IDEBuildLocationStyle=Unique \
     -test-timeouts-enabled YES -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 180
 fi
 
 rm -rf "$ARCHIVE"
 step "Archiving build $BUILD_NUMBER" xcodebuild archive -project Loft.xcodeproj -scheme Loft -configuration Release \
-  -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" "${auth[@]}" "${settings[@]}"
+  -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" -IDEBuildLocationStyle=Unique "${auth[@]}" "${settings[@]}"
 
 options=Config/ExportOptions.plist
 if [[ "${UPLOAD:-1}" == 0 ]]; then

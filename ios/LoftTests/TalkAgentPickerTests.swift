@@ -1,5 +1,6 @@
 import XCTest
 @testable import Loft
+@testable import LoftKit
 
 final class TalkAgentPickerTests: XCTestCase {
     private func agent(_ name: String, group: String? = nil, title: String? = nil, project: String? = nil) -> Agent {

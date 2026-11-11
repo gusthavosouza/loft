@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 /// A delegated plan in the chat of the agent that made it: progress, and each subtask with who's on it,

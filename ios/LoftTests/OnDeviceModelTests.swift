@@ -1,5 +1,6 @@
 import XCTest
 @testable import Loft
+@testable import LoftKit
 
 /// The wrapper's fallbacks, without the model (these run anywhere; the model's quality is measured by ios/Evaluations).
 final class OnDeviceModelTests: XCTestCase {

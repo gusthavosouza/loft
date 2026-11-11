@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 /// "Pair this iPhone" (spec #164): shows the code to compare on a paired device or at the Mac, polls with the

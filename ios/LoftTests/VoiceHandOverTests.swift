@@ -1,6 +1,7 @@
 import AVFoundation
 import XCTest
 @testable import Loft
+@testable import LoftKit
 
 /// The callers of `AudioSessionOwner`: dictation and Talk let go when read-aloud takes the audio, and restart
 /// their mic when the route settles on another one. The permission prompts and the real recognizers aren't

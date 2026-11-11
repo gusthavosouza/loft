@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 // "Grill me" interviews render inline in the normal chat: each round the agent posts is a card in the

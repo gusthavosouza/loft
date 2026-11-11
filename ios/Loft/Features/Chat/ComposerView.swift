@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 /// Multiline composer with a send button and a microphone that transcribes into the text field.

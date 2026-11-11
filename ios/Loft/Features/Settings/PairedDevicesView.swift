@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 /// Settings → Paired devices (#170): every browser and iPhone paired with Loft. Forget this device unpairs one,

@@ -1,5 +1,6 @@
 import XCTest
 @testable import Loft
+@testable import LoftKit
 
 final class PairedClientTests: XCTestCase {
     /// #170: the list as `GET /api/paired-clients` sends it (chrono's dates, with and without fractions).

@@ -1,5 +1,6 @@
 import XCTest
 @testable import Loft
+@testable import LoftKit
 
 /// The stage rules mirror the web's `specViews.ts` tests.
 final class SpecViewsTests: XCTestCase {

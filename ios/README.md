@@ -72,13 +72,19 @@ There is no shell or command endpoint. The app can only use what's listed above.
 
 ```
 ios/
-  Loft.xcodeproj         Xcode 16+ project (folders sync automatically, no dependencies)
+  Loft.xcodeproj         Xcode 16+ project (folders sync automatically; one local package, LoftKit)
   Config/Info.plist          ATS: local networking only (see Security)
+  LoftKit/               Swift package shared with the Mac app (iOS 17+, macOS 14+)
+    Sources/LoftKit/
+      Store/                 LoftStore (all client state)
+      Core/                  LoftAPI (URLSession), realtime (SSE parser, backoff), errors, pairing,
+                             snapshot cache, notifications, push, on-device AI (AI/), the voice
+                             pipeline (Voice/), UI-test fixtures (Debug only)
+      Domain/                Codable models, status mapping, JSON helpers
+      Platform/              The only iOS- or macOS-specific calls: the audio session, VoiceOver,
+                             remote-notification registration
   Loft/
-    App/                     LoftApp (tabs, routing), LoftStore (all client state)
-    Core/                    LoftAPI (URLSession), realtime (SSE parser, backoff), errors,
-                             snapshot cache, notifications, UI-test fixtures (Debug only)
-    Domain/                  Codable models, status mapping, JSON helpers
+    App/                     LoftApp (tabs, routing), AppDelegate
     DesignSystem/            Colors, status badges, cards, empty states
     Features/                Overview, Agents, Tasks, Chat (incl. dictation), Settings
   LoftTests/             Unit tests
@@ -94,7 +100,7 @@ ios/
 
 ## Voice conversations
 
-Long dictation, cleaned up on the Mac, with replies read aloud. The engine is in `Loft/Core/Voice`:
+Long dictation, cleaned up on the Mac, with replies read aloud. The engine is in `LoftKit/Sources/LoftKit/Core/Voice`:
 
 - **`VoiceSession`** listens for as long as you talk.
   - On iOS 26 it uses `SpeechAnalyzer`, which is built for long audio.
@@ -144,8 +150,8 @@ Set the same `LOFT_BUNDLE_ID` (and `LOFT_TEAM_ID`) for the backend to use as pus
 
 ```sh
 cd ios
-xcodebuild -scheme Loft -destination 'generic/platform=iOS Simulator' -derivedDataPath build build
-xcrun simctl install booted build/Debug-iphonesimulator/Loft.app
+xcodebuild -scheme Loft -destination 'generic/platform=iOS Simulator' -derivedDataPath build -IDEBuildLocationStyle=Unique build
+xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/Loft.app
 xcrun simctl launch booted com.example.loft   # or your LOFT_BUNDLE_ID
 ```
 
