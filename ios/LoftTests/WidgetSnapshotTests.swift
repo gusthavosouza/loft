@@ -47,7 +47,7 @@ final class WidgetSnapshotTests: XCTestCase {
         quiet.needsCount = 0
         quiet.items = []
         quiet.working = []
-        let states: [(String, WidgetSnapshot)] = [("ready", try await fixture()), ("quiet", quiet), ("not-paired", .notPaired), ("unreachable", .unreachable)]
+        let states: [(String, WidgetSnapshot)] = [("ready", try await fixture()), ("quiet", quiet), ("not-connected", .notConnected), ("unreachable", .unreachable)]
         var seen: [Data] = []
         for (name, snapshot) in states {
             for (size, points) in [(LoftWidgetView.Size.small, CGSize(width: 158, height: 158)), (.medium, CGSize(width: 338, height: 158))] {

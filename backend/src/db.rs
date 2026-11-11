@@ -56,9 +56,6 @@ pub struct Delivery {
     /// item and the planner's wake, once. Empty before.
     #[serde(default)]
     pub done_at: String,
-    /// The tech-debt issues its final Code Review filed ("#77", or "Loft issue <id>"), for the done summary.
-    #[serde(default)]
-    pub tech_debt: Vec<String>,
     /// The ready-for-review call failed: the mirror retries it on its next poll.
     #[serde(default)]
     pub ready_retry: bool,
@@ -659,13 +656,8 @@ CREATE TABLE IF NOT EXISTS port_ranges (
     slot INTEGER PRIMARY KEY,
     agent_id TEXT NOT NULL UNIQUE
 );
--- Clients the user paired with Loft (pairing.rs): the SHA-256 of each one's token, never the token.
-CREATE TABLE IF NOT EXISTS paired_clients (
-    hash TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    last_used_at TEXT NOT NULL
-);
+-- Paired clients are gone: drop the table, and the token hashes in it, where an earlier build made it.
+DROP TABLE IF EXISTS paired_clients;
 -- Each agent's own Simulator device (simulator.rs); deleting the agent deletes it, and its row goes once the device has.
 CREATE TABLE IF NOT EXISTS agent_devices (
     agent_id TEXT PRIMARY KEY,
@@ -1288,42 +1280,6 @@ impl Db {
         Ok(c.execute("DELETE FROM push_seen WHERE seen_at < ?1", [&cutoff])?)
     }
 
-    pub fn add_paired_client(&self, hash: &str, name: &str) -> Result<()> {
-        let now = now();
-        self.0.lock().unwrap().execute("INSERT INTO paired_clients (hash, name, created_at, last_used_at) VALUES (?1, ?2, ?3, ?3)", params![hash, name, now])?;
-        Ok(())
-    }
-
-    pub fn paired_client_count(&self) -> i64 {
-        self.0.lock().unwrap().query_row("SELECT COUNT(*) FROM paired_clients", [], |r| r.get(0)).unwrap_or(0)
-    }
-
-    /// Whether a client with this token hash is paired; counts as its use, written at most once a minute.
-    pub fn use_paired_client(&self, hash: &str) -> bool {
-        let c = self.0.lock().unwrap();
-        let Ok(last) = c.query_row("SELECT last_used_at FROM paired_clients WHERE hash = ?1", params![hash], |r| r.get::<_, Option<String>>(0)) else { return false };
-        let fresh = last.and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok()).is_some_and(|t| Utc::now().signed_duration_since(t) < chrono::Duration::seconds(60));
-        fresh || c.execute("UPDATE paired_clients SET last_used_at = ?1 WHERE hash = ?2", params![now(), hash]).is_ok()
-    }
-
-    /// Every paired client as (token hash, name, paired, last used), most recently used first.
-    pub fn paired_clients(&self) -> Result<Vec<(String, String, String, String)>> {
-        let c = self.0.lock().unwrap();
-        let mut st = c.prepare("SELECT hash, name, created_at, last_used_at FROM paired_clients ORDER BY last_used_at DESC")?;
-        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
-        Ok(rows)
-    }
-
-    /// Unpairs the client whose token hash starts with this id. False when none does.
-    pub fn forget_paired_client(&self, id: &str) -> Result<bool> {
-        Ok(self.0.lock().unwrap().execute("DELETE FROM paired_clients WHERE substr(hash, 1, 16) = ?1", params![id])? > 0)
-    }
-
-    /// Unpairs every client but the one with this token hash; how many went.
-    pub fn unpair_all_but(&self, hash: &str) -> Result<usize> {
-        Ok(self.0.lock().unwrap().execute("DELETE FROM paired_clients WHERE hash != ?1", params![hash])?)
-    }
-
     /// The database file, for backups (backup.rs), which read it through a connection of their own.
     pub fn path(&self) -> Option<std::path::PathBuf> {
         self.0.lock().unwrap().path().filter(|p| !p.is_empty()).map(Into::into)
@@ -1528,7 +1484,6 @@ impl Db {
                 stalled_at: String::new(),
                 stalled_on: vec![],
                 done_at: String::new(),
-                tech_debt: vec![],
                 ready_retry: has(&retry),
                 tickets,
                 current: None,
@@ -1939,6 +1894,16 @@ mod tests {
             "session_id": null, "last_run_at": null, "last_run_ended_at": null, "next_run_at": null, "total_cost_usd": 0.0, "created_at": now(),
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn a_stored_delivery_with_a_key_we_no_longer_have_still_loads() {
+        let db = Db::open(&crate::testdir::for_this_test("delivery-old-key").join("d.db")).unwrap();
+        // A Delivery saved when it had `tech_debt` (the field is gone): the key is ignored, not an error.
+        let json = serde_json::json!({ "repo": "o/r", "spec": 5, "state": "running", "created_at": "2026-01-01T00:00:00Z", "tech_debt": ["#77"] });
+        db.0.lock().unwrap().execute("INSERT INTO deliveries (repo, spec, state, data) VALUES ('o/r', 5, 'running', ?1)", params![json.to_string()]).unwrap();
+        let d = db.get_delivery("o/r", 5).unwrap().unwrap();
+        assert_eq!((d.spec, d.state.as_str()), (5, "running"));
     }
 
     #[test]

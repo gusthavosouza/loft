@@ -42,14 +42,8 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
         let mode: Mode = args.contains("-fixture-offline") ? .offline
             : args.contains("-fixture-empty") ? .empty
             : args.contains("-fixture-fail-sends") ? .failSends : .normal
-        let api = FixtureAPI(mode: mode, grill: args.contains("-fixture-grill"), replies: args.contains("-fixture-replies"))
-        api.paired = !args.contains("-fixture-unpaired")
-        return api
+        return FixtureAPI(mode: mode, grill: args.contains("-fixture-grill"), replies: args.contains("-fixture-replies"))
     }
-
-    /// `-fixture-unpaired`: the server refuses this app until it pairs (code 4821, allowed on the second poll).
-    private var paired = true
-    private var pairPolls = 0
 
     /// What the sample issues are about (spec #144: the demo's issues open with a description).
     public static let descriptions: [String: String] = [
@@ -231,6 +225,13 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
             // A request the explainer has to flag: it pushes to main over the network.
             perms.append(PermissionRequest(id: "p2", agentId: "be", source: "prompt", toolName: "Bash", input: ["command": "git push origin main"],
                                            reason: "Ship the settings endpoints", rule: "Bash(git push *)", status: "pending", createdAt: ago(2)))
+        }
+        if args.contains("-fixture-kill-permission") {
+            // A kill with a program to name (Always allow offered), and one with none (Allow once and Deny only).
+            perms.append(PermissionRequest(id: "k1", agentId: "be", source: "prompt", toolName: "Kill", input: ["command": "pkill -x Loft"],
+                                           reason: "Stops 1 process Backend Agent didn't start: 4242 (not an agent's: Loft.app)", rule: "Kill(/Users/me/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/Loft.app/Contents/MacOS/Loft)", status: "pending", createdAt: ago(2)))
+            perms.append(PermissionRequest(id: "k2", agentId: "be", source: "prompt", toolName: "Kill", input: ["command": "pkill -x worker"],
+                                           reason: "Stops 1 process Reviewer is running: 4243", rule: "", status: "pending", createdAt: ago(1)))
         }
         if args.contains("-fixture-agent-asks") {
             // The Orchestrator's last word is a question: suggested replies show under it.
@@ -978,59 +979,7 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
 
     public func serverSettings() async throws -> JSONValue {
         try check()
-        guard locked({ paired }) else {
-            Pairing.reportUnpaired()
-            throw APIError.server(status: 401, message: "pair this client with Loft first")
-        }
         return locked { settings }
-    }
-
-    public func startPairing(name: String) async throws -> PairingStart {
-        try check()
-        locked { pairPolls = 0 }
-        return PairingStart(secret: "fixture-secret", code: "4821", expiresIn: 120)
-    }
-
-    public func pollPairing(secret: String) async throws -> PairingPoll {
-        try check()
-        return locked {
-            pairPolls += 1
-            guard pairPolls >= 2 else { return PairingPoll(status: "pending") }
-            paired = true
-            return PairingPoll(status: "allowed", token: "fixture-token")
-        }
-    }
-
-    public func cancelPairing(secret: String) async throws {}
-
-    /// Paired devices on fixture data: this iPhone plus two others.
-    private var clients = [
-        PairedClient(id: "c1", name: "iPhone", pairedAt: Date(timeIntervalSinceNow: -6 * 86_400), lastUsedAt: Date(), this: true),
-        PairedClient(id: "c2", name: "Chrome on Mac", pairedAt: Date(timeIntervalSinceNow: -7 * 86_400), lastUsedAt: Date(timeIntervalSinceNow: -1_500), this: false),
-        PairedClient(id: "c3", name: "Safari on iOS", pairedAt: Date(timeIntervalSinceNow: -13 * 86_400), lastUsedAt: Date(timeIntervalSinceNow: -9 * 86_400), this: false),
-    ]
-
-    public func pairedClients() async throws -> [PairedClient] {
-        try check()
-        guard locked({ paired }) else {
-            Pairing.reportUnpaired()
-            throw APIError.server(status: 401, message: "pair this client with Loft first")
-        }
-        return locked { clients }
-    }
-
-    /// Forgetting this iPhone unpairs it: the next request is refused, like Loft does.
-    public func forgetClient(id: String) async throws {
-        try check()
-        locked {
-            if clients.contains(where: { $0.id == id && $0.this }) { paired = false }
-            clients.removeAll { $0.id == id }
-        }
-    }
-
-    public func unpairAll() async throws {
-        try check()
-        locked { clients.removeAll { !$0.this } }
     }
 
     /// Three repos in the projects folder, one with local changes, and their open PRs and issues.

@@ -30,9 +30,9 @@ public enum DeepLink: Equatable {
 /// What the widgets show (spec #382): Needs you (the count and the first items), who is working now and the spend.
 public struct WidgetSnapshot: Equatable {
     public enum Phase: Equatable {
-        /// Nothing paired with a Loft yet.
-        case notPaired
-        /// Paired, but Loft didn't answer.
+        /// The app hasn't connected to a Loft yet.
+        case notConnected
+        /// Connected, but Loft didn't answer.
         case unreachable
         case ready
     }
@@ -56,7 +56,7 @@ public struct WidgetSnapshot: Equatable {
     /// What the Usage week's runs cost, in US dollars; nil when Loft didn't say.
     public var weekSpend: Double?
 
-    public static let notPaired = WidgetSnapshot(phase: .notPaired)
+    public static let notConnected = WidgetSnapshot(phase: .notConnected)
     public static let unreachable = WidgetSnapshot(phase: .unreachable)
 
     public init(phase: Phase) { self.phase = phase }
@@ -80,17 +80,15 @@ public struct WidgetSnapshot: Equatable {
         weekSpend.map { $0.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US"))) }
     }
 
-    /// Reads Loft as the paired app does: the token and address from the shared Keychain group.
+    /// Reads Loft at the address the app connected to.
     public static func load() async -> WidgetSnapshot {
-        guard let paired = ClientToken.paired() else { return .notPaired }
-        let api = LiveLoftAPI(baseURL: paired.server)
+        guard let server = SharedServer.address else { return .notConnected }
+        let api = LiveLoftAPI(baseURL: server)
         do {
             async let needs = api.needsYou()
             async let agents = api.agents()
             async let spend = try? api.weekSpend()
             return WidgetSnapshot(needsYou: try await needs, agents: try await agents, weekSpend: await spend)
-        } catch APIError.server(status: 401, _) {
-            return .notPaired
         } catch {
             return .unreachable
         }

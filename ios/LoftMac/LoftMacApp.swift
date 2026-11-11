@@ -1,7 +1,7 @@
 import LoftKit
 import SwiftUI
 
-/// Loft for Mac (spec #382): the same paired client as the iPhone app, in Mac windows with a sidebar of sections.
+/// Loft for Mac (spec #382): the same client as the iPhone app, in Mac windows with a sidebar of sections.
 @main
 struct LoftMacApp: App {
     @State private var store: LoftStore
@@ -145,7 +145,7 @@ struct LoftCommands: Commands {
     }
 }
 
-/// First the address, then pairing, then the window's sections. Loft unreachable with nothing loaded yet says so.
+/// First the address, then the window's sections. Loft unreachable with nothing loaded yet says so.
 struct MacRootView: View {
     @Environment(LoftStore.self) private var store
 
@@ -155,22 +155,11 @@ struct MacRootView: View {
                 .frame(maxWidth: 520)
                 .padding(32)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if needsPairing {
-            PairScreen()
         } else if store.lastSync == nil, case .reconnecting(_, let error) = store.connection {
             UnreachableScreen(error: error)
         } else {
             MainWindow()
         }
-    }
-
-    /// Every Mac pairs before anything else (reads work unpaired, but nothing could be changed). UI tests on
-    /// fixture data skip it unless they test it (`-fixture-pairing`).
-    private var needsPairing: Bool {
-        if store.showsPairing { return true }
-        if store.isPaired || store.isDemo { return false }
-        if store.api is FixtureAPI { return TestMode.fixturePairing }
-        return true
     }
 }
 
@@ -276,7 +265,7 @@ struct RecipientPicker: View {
 }
 
 #if DEBUG
-/// `-render-window <folder>`: draws the main window to PNGs (pairing, or a chat, Issues, Overview and Needs you), then quits.
+/// `-render-window <folder>`: draws the main window to PNGs (the address step, or a chat, Issues, Overview and Needs you), then quits.
 /// For screenshots when a UI test can't drive the app (another copy of it is open, and XCUITest picks that one).
 @MainActor
 func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
@@ -295,7 +284,7 @@ func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
     }
     if store.agents.isEmpty {
-        png("pairing")
+        png("connect")
     } else {
         if let id = store.agents.first(where: { $0.name == "Orchestrator" })?.id { nav.openChat(id) }
         try? await Task.sleep(for: .seconds(2))

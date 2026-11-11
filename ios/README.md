@@ -77,7 +77,7 @@ ios/
   LoftKit/               Swift package shared with the Mac app (iOS 17+, macOS 14+)
     Sources/LoftKit/
       Store/                 LoftStore (all client state)
-      Core/                  LoftAPI (URLSession), realtime (SSE parser, backoff), errors, pairing,
+      Core/                  LoftAPI (URLSession), realtime (SSE parser, backoff), errors,
                              snapshot cache, notifications, push, on-device AI (AI/), the voice
                              pipeline (Voice/), UI-test fixtures (Debug only)
       Domain/                Codable models, status mapping, JSON helpers
@@ -197,7 +197,7 @@ not the app). Paste these into App Store Connect:
 
 **The Mac app**
 
-`LoftMac` is a native macOS 14+ app in the same project, built on LoftKit like the iPhone app. It's a paired client too (ADR 0004): it reaches Loft at `http://localhost:7420` on this Mac, or another Mac's Tailscale address.
+`LoftMac` is a native macOS 14+ app in the same project, built on LoftKit like the iPhone app. It reaches Loft at `http://localhost:7420` on this Mac, or another Mac's Tailscale address.
 
 It's always signed with your team, even for Debug, because its entitlements need a provisioning profile: so set `LOFT_TEAM_ID` and `LOFT_BUNDLE_ID` (see **Signing**). Its bundle id is `LOFT_BUNDLE_ID` + `.mac`. `Config/LoftMac.entitlements` gives it the App Sandbox (TestFlight requires it), network client, the microphone, read access to images you pick, and the Keychain group `<team>.<LOFT_BUNDLE_ID>.shared` for the desktop widgets.
 
@@ -209,7 +209,7 @@ It's always signed with your team, even for Debug, because its entitlements need
   xcodebuild -scheme LoftMac -destination 'platform=macOS' -IDEBuildLocationStyle=Unique -allowProvisioningUpdates build
   open "$(xcodebuild -scheme LoftMac -destination 'platform=macOS' -IDEBuildLocationStyle=Unique -showBuildSettings | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2}')/Loft.app"
   ```
-- *Pair:* the first launch shows a code. Click Pair, then allow it in Loft's dialog (or on a paired iPhone) after checking the codes match. The token stays in the Keychain, so it pairs once.
+- *First launch:* it asks for the address (this Mac by default), checks Loft answers there and opens the agents.
 - *TestFlight:* the same script with `--mac`. Create the Mac app in App Store Connect once (Apps → + → New App, platform macOS, bundle id `LOFT_BUNDLE_ID.mac`), then:
 
   ```sh
@@ -223,7 +223,7 @@ It's always signed with your team, even for Debug, because its entitlements need
 
 **Widgets**
 
-Small and medium widgets for the Mac desktop and the iPhone home screen: Needs you (the count and the first items), who is working now, and the Usage week's spend. `LoftWidgets` (iPhone) and `LoftMacWidgets` (Mac) are two thin extensions around `LoftOverviewWidget` in LoftKit, embedded in the apps. A widget has no UI to pair: it reads the address and token from the Keychain group `<team>.<LOFT_BUNDLE_ID>.shared`, where the apps save them (an iPhone token saved before widgets is moved there the first time the app reads it; a Mac token from before is not, so pair the Mac app again). Until then it says "Not paired". A tap opens the app at `loft://needs-you`, `loft://agents` or `loft://agent/<id>`. They refresh about every 15 minutes. Add them from the desktop's or home screen's widget gallery (Edit Widgets); they need `LOFT_TEAM_ID` like the Mac app, since the Keychain group needs a provisioning profile.
+Small and medium widgets for the Mac desktop and the iPhone home screen: Needs you (the count and the first items), who is working now, and the Usage week's spend. `LoftWidgets` (iPhone) and `LoftMacWidgets` (Mac) are two thin extensions around `LoftOverviewWidget` in LoftKit, embedded in the apps. A widget has no address field: it reads the Loft address from the Keychain group `<team>.<LOFT_BUNDLE_ID>.shared`, where the apps save it each time they connect. Until then it says "Not connected". A tap opens the app at `loft://needs-you`, `loft://agents` or `loft://agent/<id>`. They refresh about every 15 minutes. Add them from the desktop's or home screen's widget gallery (Edit Widgets); they need `LOFT_TEAM_ID` like the Mac app, since the Keychain group needs a provisioning profile.
 
 **Tests**
 

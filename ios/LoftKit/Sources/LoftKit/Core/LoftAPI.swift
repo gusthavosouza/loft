@@ -114,14 +114,6 @@ public protocol LoftAPI: Sendable {
     func briefVoice(text: String) async throws -> VoiceBriefResponse
     /// Server-sent events; the caller handles reconnecting.
     func eventLines() async throws -> AsyncThrowingStream<String, Error>
-    /// Pairing (spec #164): ask to be paired, poll with the secret, or give the pending pairing up.
-    func startPairing(name: String) async throws -> PairingStart
-    func pollPairing(secret: String) async throws -> PairingPoll
-    func cancelPairing(secret: String) async throws
-    /// Paired devices (#170): the list, Forget this device, and Unpair all (every client but this one).
-    func pairedClients() async throws -> [PairedClient]
-    func forgetClient(id: String) async throws
-    func unpairAll() async throws
     /// The web's home summary (Loft for Mac's Overview): the projects folder's repos and their GitHub PRs and issues.
     func repos() async throws -> [RepoSummary]
     func repoGithub() async throws -> [String: RepoGithub]
@@ -138,9 +130,6 @@ public protocol LoftAPI: Sendable {
 
 public struct LiveLoftAPI: LoftAPI {
     public let baseURL: URL
-    /// This app's pairing token for `baseURL`, from the Keychain; nil until paired (and always in the Simulator).
-    private let token: String?
-    public var isPaired: Bool { token != nil }
     private let session: URLSession
     private let streamSession: URLSession
 
@@ -152,7 +141,6 @@ public struct LiveLoftAPI: LoftAPI {
     public init(baseURL: URL) {
         Self.madeLock.withLock { Self.made += 1 }
         self.baseURL = baseURL
-        token = ClientToken.load(for: baseURL)
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 15
         cfg.waitsForConnectivity = false
@@ -188,7 +176,6 @@ public struct LiveLoftAPI: LoftAPI {
         if let timeout { req.timeoutInterval = timeout }
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONEncoder().encode(body)
@@ -208,7 +195,6 @@ public struct LiveLoftAPI: LoftAPI {
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         Log.net.debug("\(method, privacy: .public) \(path, privacy: .public) → \(status) in \(Int(Date().timeIntervalSince(started) * 1000))ms")
         guard (200..<300).contains(status) else {
-            if status == 401 { Pairing.reportUnpaired() }
             let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
                 ?? HTTPURLResponse.localizedString(forStatusCode: status)
             throw APIError.server(status: status, message: message)
@@ -466,21 +452,6 @@ public struct LiveLoftAPI: LoftAPI {
         try decode(VoiceBriefResponse.self, try await send("POST", "/voice/brief", body: ["text": .string(text)], timeout: LoftStore.briefTimeout))
     }
 
-    public func startPairing(name: String) async throws -> PairingStart {
-        try decode(PairingStart.self, try await send("POST", "/pair", body: ["name": .string(name)]))
-    }
-
-    public func pollPairing(secret: String) async throws -> PairingPoll {
-        try decode(PairingPoll.self, try await send("POST", "/pair/poll", body: ["secret": .string(secret)]))
-    }
-
-    public func cancelPairing(secret: String) async throws { _ = try await send("POST", "/pair/cancel", body: ["secret": .string(secret)]) }
-
-    public func pairedClients() async throws -> [PairedClient] { try decode([PairedClient].self, try await send("GET", "/paired-clients")) }
-
-    public func forgetClient(id: String) async throws { _ = try await send("DELETE", "/paired-clients/\(id)") }
-
-    public func unpairAll() async throws { _ = try await send("POST", "/paired-clients/unpair-all", body: [:]) }
     public func repos() async throws -> [RepoSummary] { try await get("/repos") }
     public func repoGithub() async throws -> [String: RepoGithub] { try await get("/repos/github") }
     public func agentsTotals() async throws -> AgentsTotals { try await get("/agents/summary", query: [URLQueryItem(name: "totals", value: "true")]) }
@@ -492,7 +463,6 @@ public struct LiveLoftAPI: LoftAPI {
     public func eventLines() async throws -> AsyncThrowingStream<String, Error> {
         var req = URLRequest(url: url("/events"))
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let bytes: URLSession.AsyncBytes, resp: URLResponse
         do {
             (bytes, resp) = try await streamSession.bytes(for: req)
@@ -591,12 +561,6 @@ extension LoftAPI {
     public func unregisterDevice(token: String) async throws { throw APIError.unsupported("Push") }
     public func testPush(token: String) async throws { throw APIError.unsupported("Push") }
     public func updateDevice(token: String, _ fields: [String: JSONValue]) async throws { throw APIError.unsupported("Push") }
-    public func startPairing(name: String) async throws -> PairingStart { throw APIError.unsupported("Pairing") }
-    public func pollPairing(secret: String) async throws -> PairingPoll { throw APIError.unsupported("Pairing") }
-    public func cancelPairing(secret: String) async throws {}
-    public func pairedClients() async throws -> [PairedClient] { throw APIError.unsupported("Pairing") }
-    public func forgetClient(id: String) async throws { throw APIError.unsupported("Pairing") }
-    public func unpairAll() async throws { throw APIError.unsupported("Pairing") }
     public func repos() async throws -> [RepoSummary] { throw APIError.unsupported("Repos") }
     public func repoGithub() async throws -> [String: RepoGithub] { throw APIError.unsupported("Repos") }
     public func agentsTotals() async throws -> AgentsTotals { throw APIError.unsupported("Spend") }

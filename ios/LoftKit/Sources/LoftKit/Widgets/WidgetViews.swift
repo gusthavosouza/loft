@@ -15,7 +15,7 @@ public struct LoftWidgetView: View {
 
     public var body: some View {
         switch snapshot.phase {
-        case .notPaired: message("Not paired", "Open Loft and pair it.", symbol: "link.badge.plus")
+        case .notConnected: message("Not connected", "Open Loft and connect it.", symbol: "link.badge.plus")
         case .unreachable: message("Can't reach Loft", "Check that Loft is running and reachable.", symbol: "bolt.horizontal.circle")
         case .ready: ready
         }

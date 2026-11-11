@@ -11,7 +11,7 @@ final class WidgetRenderTests: XCTestCase {
         let api = FixtureAPI()
         let ready = WidgetSnapshot(needsYou: try await api.needsYou(), agents: try await api.agents(), weekSpend: 12.4)
         var seen: [Data] = []
-        for (name, snapshot) in [("ready", ready), ("not-paired", WidgetSnapshot.notPaired), ("unreachable", .unreachable)] {
+        for (name, snapshot) in [("ready", ready), ("not-connected", WidgetSnapshot.notConnected), ("unreachable", .unreachable)] {
             for (size, points) in [(LoftWidgetView.Size.small, CGSize(width: 158, height: 158)), (.medium, CGSize(width: 338, height: 158))] {
                 let view = LoftWidgetView(snapshot, size: size).padding(16).frame(width: points.width, height: points.height)
                     .background(Color(white: 0.11)).environment(\.colorScheme, .dark).environment(\.widgetLinksTap, false)

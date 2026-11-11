@@ -1,6 +1,6 @@
 import XCTest
 
-/// Loft for Mac on fixture data (`-ui-testing`): pairing, the agents list, sending with @ and #, Overview, Needs you
+/// Loft for Mac on fixture data (`-ui-testing`): the agents list, sending with @ and #, Overview, Needs you
 /// and Settings with Clean.
 final class LoftMacUITests: XCTestCase {
     private var app: XCUIApplication!
@@ -39,15 +39,6 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["connectError"].waitForExistence(timeout: 20))
         shot("Can't reach Loft")
         XCTAssertTrue(field.exists, "Still on the address screen")
-    }
-
-    /// An unpaired Mac shows the code, and once Loft allows it the agents open.
-    func testPairsThenOpensAgents() {
-        launch(["-ui-testing", "-fixture-unpaired", "-fixture-pairing"])
-        let code = app.staticTexts["pairingCode"]
-        XCTAssertTrue(code.waitForExistence(timeout: 10))
-        shot("Pair this Mac")
-        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 15), "Pairing finished and the agents show")
     }
 
     /// Leads first, then groups; an agent's settings save.
@@ -223,7 +214,7 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["lastClean"].waitForExistence(timeout: 10), "Disk shows the run")
     }
 
-    /// Settings: a change shows Save, saving keeps it, and paired devices list.
+    /// Settings: a change shows Save, and saving keeps it.
     func testSettingsSave() {
         launch(["-ui-testing"])
         XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
@@ -242,7 +233,6 @@ final class LoftMacUITests: XCTestCase {
         app.typeKey("5", modifierFlags: .command)
         XCTAssertTrue(toggle.waitForExistence(timeout: 10))
         XCTAssertEqual(toggle.value as? Int, 0, "Saved off, and loaded again off")
-        XCTAssertTrue(app.descendants(matching: .any)["paired-iPhone"].waitForExistence(timeout: 10))
         shot("Settings")
     }
 

@@ -104,9 +104,6 @@ public final class LoftStore {
         self.notifier = notifier
         self.orchestratorId = UserDefaults.standard.string(forKey: Prefs.orchestratorId)
         configure(api)
-        NotificationCenter.default.addObserver(forName: Pairing.unpairedNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.unpaired() }
-        }
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let ok = path.status == .satisfied
             Task { @MainActor in self?.networkChanged(satisfied: ok) }
@@ -245,53 +242,12 @@ public final class LoftStore {
         if api != nil { activate() }
     }
 
-    // MARK: - Pairing (spec #164)
-
-    /// Loft refused this app as unpaired: the pairing screen shows.
-    public var showsPairing = false
-    /// Whether this app holds a token for the server (never in the Simulator or the demo).
-    public private(set) var isPaired = false
-    /// "Not now" on the pairing screen: it doesn't open again by itself until the server changes.
-    private var pairingPutOff = false
-
-    /// Why this app may not pair here, or nil when it may.
-    public var pairingRefusal: String? {
-        Pairing.refusal(isDemo: isDemo, fixture: api is FixtureAPI && TestMode.fixturePairing)
-    }
-
-    private func unpaired() {
-        guard api != nil, !isDemo else { return }
-        isPaired = false
-        if !pairingPutOff { showsPairing = true }
-    }
-
-    public func putOffPairing() {
-        pairingPutOff = true
-        showsPairing = false
-    }
-
-    /// Keeps the token Loft handed out and reconnects with it. False when it couldn't be kept.
-    public func finishPairing(token: String) -> Bool {
-        guard pairingRefusal == nil, let api else { return false }
-        if api is FixtureAPI {
-            // UI tests: the screen completes, and the token goes nowhere.
-            isPaired = true
-            showsPairing = false
-            return true
-        }
-        guard ClientToken.save(token, for: api.baseURL) else { return false }
-        configure(LiveLoftAPI(baseURL: api.baseURL))
-        activate()
-        return true
-    }
-
     public func configure(_ api: LoftAPI?) {
         connectionTask?.cancel()
         connectionTask = nil
         self.api = api
-        isPaired = (api as? LiveLoftAPI)?.isPaired ?? false
-        showsPairing = false
-        pairingPutOff = false
+        // The widgets read Loft at this address too.
+        if let live = api as? LiveLoftAPI { SharedServer.save(live.baseURL) }
         resetData()
         guard let api else {
             connection = .notConfigured
@@ -402,8 +358,6 @@ public final class LoftStore {
         if let o = orchestratorId { await refreshGrill(o) }
         if info.supports(.grill) { await loadGrillPhrases() }
         if info.supports(.needsYou) { await refreshNeedsYou() }
-        // Reading the settings needs a paired client: a 401 here brings back the pairing screen.
-        if !isDemo { _ = try? await api.serverSettings() }
         // A reconnect may have missed `delivery` events: open cards catch up.
         for id in deliveryCards.keys { try? await loadDelivery(id) }
         scheduleSave()
@@ -1105,9 +1059,6 @@ public final class LoftStore {
         IssueSettings(try await requireWrite().serverSettings())
     }
 
-    public func pairedClients() async throws -> [PairedClient] { try await requireWrite().pairedClients() }
-    public func forgetClient(id: String) async throws { try await requireWrite().forgetClient(id: id) }
-    public func unpairAll() async throws { try await requireWrite().unpairAll() }
     public func repos() async throws -> [RepoSummary] { try await requireWrite().repos() }
     public func repoGithub() async throws -> [String: RepoGithub] { try await requireWrite().repoGithub() }
     public func agentsTotals() async throws -> AgentsTotals { try await requireWrite().agentsTotals() }
@@ -1259,8 +1210,8 @@ public final class LoftStore {
         let push = PushRegistrar.shared
         if push.registered, let api, let token = push.token { Task { try? await api.unregisterDevice(token: token) } }
         cache.clear()
-        if let api { ClientToken.delete(for: api.baseURL) }
         UserDefaults.standard.removeObject(forKey: Prefs.serverURL)
+        SharedServer.delete()
         configure(nil)
     }
 }

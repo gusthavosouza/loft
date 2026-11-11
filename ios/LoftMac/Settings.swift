@@ -2,7 +2,7 @@ import LoftKit
 import SwiftUI
 
 /// Settings: the web's sections, saved together with only what changed, plus this Mac's Loft address. Backups' Back
-/// up now, Clean, paired devices and Mac access act at once, as on the web.
+/// up now, Clean and Mac access act at once, as on the web.
 struct SettingsSection: View {
     @Environment(LoftStore.self) private var store
     /// `GET /api/settings`'s `settings` as saved, and as edited here.
@@ -58,7 +58,6 @@ struct SettingsSection: View {
                 Section("Keyboard shortcuts") {
                     ForEach(Self.shortcuts, id: \.0) { s in LabeledContent(s.1, value: s.0) }
                 }
-                PairedDevicesSettings()
                 MacAccessSettings()
             } else if let error {
                 Text(error).foregroundStyle(Theme.failureInk)
@@ -411,67 +410,6 @@ private struct SpendSettings: View {
             Text("Estimated at API list prices.").font(.caption).foregroundStyle(.secondary)
         }
         .task { all = try? await store.agentsTotals().allTime }
-    }
-}
-
-/// Paired devices: every browser, iPhone and Mac that can change Loft. Forget one, or unpair all but this Mac.
-private struct PairedDevicesSettings: View {
-    @Environment(LoftStore.self) private var store
-    @State private var clients: [PairedClient] = []
-    @State private var confirming = false
-    @State private var error: String?
-
-    private var others: Int { clients.filter { !$0.this }.count }
-
-    var body: some View {
-        Section {
-            ForEach(clients) { c in
-                HStack {
-                    Image(systemName: c.name.contains("iPhone") || c.name.contains("iOS") ? "iphone" : "desktopcomputer").foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text(c.name)
-                            if c.this { Text("This Mac").font(.caption).padding(.horizontal, 6).background(.quaternary, in: Capsule()) }
-                        }
-                        Text("paired \(c.pairedAt.shortAgo) · used \(c.lastUsedAt.shortAgo)").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Forget this device") { Task { await forget(c) } }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(Theme.failureInk)
-                        .accessibilityIdentifier("forget-\(c.name)")
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("paired-\(c.name)")
-            }
-            HStack {
-                Button("Unpair all") { confirming = true }.disabled(others == 0)
-                if let error { Text(error).font(.caption).foregroundStyle(Theme.failureInk) }
-            }
-        } header: {
-            Text("Paired devices")
-        } footer: {
-            Text("Browsers and phones that can change Loft. An unpaired one goes back to its pairing screen on its next request.")
-        }
-        .task { await load() }
-        .confirmationDialog("Unpair \(others) other device\(others == 1 ? "" : "s")?", isPresented: $confirming) {
-            Button("Unpair", role: .destructive) { Task { await unpairAll() } }
-        }
-    }
-
-    private func load() async {
-        do { clients = try await store.pairedClients(); error = nil } catch { self.error = APIError.from(error).title }
-    }
-
-    /// Forgetting this Mac unpairs it: its next request is a 401, which shows the pairing screen.
-    private func forget(_ c: PairedClient) async {
-        do { try await store.forgetClient(id: c.id) } catch { self.error = APIError.from(error).title }
-        await load()
-    }
-
-    private func unpairAll() async {
-        do { try await store.unpairAll() } catch { self.error = APIError.from(error).title }
-        await load()
     }
 }
 
