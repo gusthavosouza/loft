@@ -44,6 +44,8 @@ struct LoftMacApp: App {
                 .environment(voice)
                 .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
+                // A tap on a widget.
+                .onOpenURL { url in if let link = DeepLink(url: url) { nav.open(link) } }
                 #if DEBUG
                 .task {
                     let args = ProcessInfo.processInfo.arguments
@@ -106,6 +108,14 @@ final class MacNav {
     func openChat(_ agentId: String) {
         section = .agents
         self.agentId = agentId
+    }
+
+    func open(_ link: DeepLink) {
+        switch link {
+        case .needsYou: section = .needsYou
+        case .agents: section = .agents
+        case .agent(let id): openChat(id)
+        }
     }
 }
 

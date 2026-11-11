@@ -221,6 +221,10 @@ It's always signed with your team, even for Debug, because its entitlements need
   `-allowProvisioningUpdates` creates the Mac App Store and installer certificates the first time. Testers install it with Apple's TestFlight app for Mac.
 - *Update:* a TestFlight install updates from the TestFlight app (turn on Automatic Updates there). A local build updates by pulling and running it again. The backend updates on its own, so only the app's own changes need a new build.
 
+**Widgets**
+
+Small and medium widgets for the Mac desktop and the iPhone home screen: Needs you (the count and the first items), who is working now, and the Usage week's spend. `LoftWidgets` (iPhone) and `LoftMacWidgets` (Mac) are two thin extensions around `LoftOverviewWidget` in LoftKit, embedded in the apps. A widget has no UI to pair: it reads the address and token from the Keychain group `<team>.<LOFT_BUNDLE_ID>.shared`, where the apps save them (an iPhone token saved before widgets is moved there the first time the app reads it; a Mac token from before is not, so pair the Mac app again). Until then it says "Not paired". A tap opens the app at `loft://needs-you`, `loft://agents` or `loft://agent/<id>`. They refresh about every 15 minutes. Add them from the desktop's or home screen's widget gallery (Edit Widgets); they need `LOFT_TEAM_ID` like the Mac app, since the Keychain group needs a provisioning profile.
+
 **Tests**
 
 ```sh
