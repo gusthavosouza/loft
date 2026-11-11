@@ -32,6 +32,8 @@ public struct LoftOverviewWidget: Widget {
         StaticConfiguration(kind: "loft.overview", provider: LoftProvider()) { entry in
             EntryView(entry: entry)
                 .containerBackground(.background, for: .widget)
+                // A tap anywhere without a link of its own (all of the small one) opens Needs you.
+                .widgetURL(DeepLink.needsYou.url)
         }
         .configurationDisplayName("Loft")
         .description("What needs you, who is working and the week's spend.")

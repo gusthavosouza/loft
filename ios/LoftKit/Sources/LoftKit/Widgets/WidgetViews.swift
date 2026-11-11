@@ -15,7 +15,7 @@ public struct LoftWidgetView: View {
 
     public var body: some View {
         switch snapshot.phase {
-        case .notPaired: message("Not paired", "Open Loft and pair it with your Mac.", symbol: "link.badge.plus")
+        case .notPaired: message("Not paired", "Open Loft and pair it.", symbol: "link.badge.plus")
         case .unreachable: message("Can't reach Loft", "Check that Loft is running and reachable.", symbol: "bolt.horizontal.circle")
         case .ready: ready
         }
@@ -39,11 +39,10 @@ public struct LoftWidgetView: View {
                 if let spend = snapshot.spendText { Text("\(spend) this week").font(.caption2).foregroundStyle(.secondary) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .widgetLink(DeepLink.needsYou)
         } else {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    needsHeader
+                    needsHeader.widgetLink(DeepLink.needsYou)
                     ForEach(snapshot.items) { item in
                         VStack(alignment: .leading, spacing: 0) {
                             Text(item.title).font(.caption).lineLimit(1)
@@ -51,7 +50,7 @@ public struct LoftWidgetView: View {
                         }
                         .widgetLink(item.link)
                     }
-                    if snapshot.items.isEmpty { Text("Nothing is waiting on you.").font(.caption).foregroundStyle(.secondary) }
+                    if snapshot.items.isEmpty { Text("Nothing is waiting on you.").font(.caption).foregroundStyle(.secondary).widgetLink(DeepLink.needsYou) }
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
