@@ -9,7 +9,10 @@ struct LoftMacApp: App {
 
     init() {
         Prefs.registerDefaults()
-        _store = State(initialValue: LoftStore(api: Self.makeAPI()))
+        let store = LoftStore(api: Self.makeAPI())
+        // Live from launch: the menu bar item needs it with the window closed.
+        store.activate()
+        _store = State(initialValue: store)
     }
 
     private static func makeAPI() -> LoftAPI? {
@@ -28,17 +31,26 @@ struct LoftMacApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Loft") {
+        Window("Loft", id: "main") {
             MacRootView()
                 .environment(store)
                 .environment(nav)
                 .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
+                #if DEBUG
+                .task {
+                    let args = ProcessInfo.processInfo.arguments
+                    if let i = args.firstIndex(of: "-render-menubar"), i + 1 < args.count { await renderMenuBar(store: store, nav: nav, to: args[i + 1]) }
+                }
+                #endif
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in store.saveNow() }
         }
         // Room for the sidebar, the agents, the chat and the agent's settings side by side.
         .defaultSize(width: 1400, height: 860)
         .commands { LoftCommands(nav: nav) }
+
+        MenuBarExtra { MenuBarContent().environment(store).environment(nav) } label: { MenuBarLabel().environment(store) }
+            .menuBarExtraStyle(.window)
 
         Settings {
             AddressForm(isOnboarding: false)
