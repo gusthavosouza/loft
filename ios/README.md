@@ -195,6 +195,32 @@ not the app). Paste these into App Store Connect:
   no name or email is asked for. Push text passes through the relay in transit only and is never stored.
 - *Account deletion:* the only account is on the portal, and it has **Delete my account** (`https://portal.get-loft.com/account/delete`).
 
+**The Mac app**
+
+`LoftMac` is a native macOS 14+ app in the same project, built on LoftKit like the iPhone app. It's a paired client too (ADR 0004): it reaches Loft at `http://localhost:7420` on this Mac, or another Mac's Tailscale address.
+
+It's always signed with your team, even for Debug, because its entitlements need a provisioning profile: so set `LOFT_TEAM_ID` and `LOFT_BUNDLE_ID` (see **Signing**). Its bundle id is `LOFT_BUNDLE_ID` + `.mac`. `Config/LoftMac.entitlements` gives it the App Sandbox (TestFlight requires it), network client, the microphone, read access to images you pick, and the Keychain group `<team>.<LOFT_BUNDLE_ID>.shared` for the desktop widgets.
+
+- *Run from Xcode:* open `ios/Loft.xcodeproj`, pick the **LoftMac** scheme and **My Mac**, then Run. The first build may ask Xcode to register this Mac with your team.
+- *Build from the command line:*
+
+  ```sh
+  cd ios
+  xcodebuild -scheme LoftMac -destination 'platform=macOS' -IDEBuildLocationStyle=Unique -allowProvisioningUpdates build
+  open "$(xcodebuild -scheme LoftMac -destination 'platform=macOS' -IDEBuildLocationStyle=Unique -showBuildSettings | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2}')/Loft.app"
+  ```
+- *Pair:* the first launch shows a code. Click Pair, then allow it in Loft's dialog (or on a paired iPhone) after checking the codes match. The token stays in the Keychain, so it pairs once.
+- *TestFlight:* the same script with `--mac`. Create the Mac app in App Store Connect once (Apps → + → New App, platform macOS, bundle id `LOFT_BUNDLE_ID.mac`), then:
+
+  ```sh
+  ./testflight.sh --mac              # the LoftMac tests (they drive this Mac's screen), archive, upload
+  ./testflight.sh --mac --fast       # skip the tests
+  ./testflight.sh --mac --no-upload  # archive and export a signed Loft.pkg to ios/build/testflight-mac/export
+  ```
+
+  `-allowProvisioningUpdates` creates the Mac App Store and installer certificates the first time. Testers install it with Apple's TestFlight app for Mac.
+- *Update:* a TestFlight install updates from the TestFlight app (turn on Automatic Updates there). A local build updates by pulling and running it again. The backend updates on its own, so only the app's own changes need a new build.
+
 **Tests**
 
 ```sh
