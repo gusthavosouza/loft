@@ -19,6 +19,12 @@ public struct NeedsYouAlerts {
         return primed ? new.filter { Self.types.contains($0.type) } : []
     }
 
+    /// The Dock badge: the Needs you count, none when it's empty or the list hasn't loaded.
+    public static func badge(for list: NeedsYouList?) -> String? {
+        guard let n = list?.count, n > 0 else { return nil }
+        return String(n)
+    }
+
     /// Where a click on the item's notification leads, in a push's `target` shape.
     public static func target(of item: NeedsYouItem) -> [String: String]? {
         if let t = item.openAction?.target {
