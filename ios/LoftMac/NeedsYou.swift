@@ -50,6 +50,8 @@ struct NeedsYouRow: View {
     @Environment(MacNav.self) private var nav
     @Environment(\.openURL) private var openURL
     let item: NeedsYouItem
+    /// The on-device model's one-line summary and suggested replies (they only fill the reply sheet).
+    @State private var assist: NeedsYouAssist?
     @State private var answering: String?
     @State private var busy = false
     @State private var error: String?
@@ -71,10 +73,22 @@ struct NeedsYouRow: View {
                 Spacer(minLength: 0)
                 if let age = item.createdAt { Text(age.shortAgo).font(.caption).foregroundStyle(.secondary) }
             }
+            if let s = assist?.summary {
+                Label(s, systemImage: "sparkles").accessibilityLabel("Summary: \(s)")
+            }
             Text(item.text.isEmpty ? item.reason : item.text)
                 .foregroundStyle(.secondary)
                 .lineLimit(4)
                 .textSelection(.enabled)
+            // Only when there's a real choice: a lone suggestion read as a command.
+            if let replies = assist?.replies, replies.count >= 2, item.answerAction != nil {
+                HStack(spacing: 6) {
+                    ForEach(replies, id: \.self) { r in
+                        Button(r) { answering = r }.buttonStyle(.bordered).controlSize(.small).help("Fills in the reply; nothing is sent")
+                    }
+                }
+                .accessibilityIdentifier("needsYouSuggestions")
+            }
             HStack(spacing: 6) {
                 ForEach(Array(item.actions.filter { $0.kind != "dismiss" }.enumerated()), id: \.offset) { _, a in action(a) }
                 Spacer(minLength: 0)
@@ -89,6 +103,10 @@ struct NeedsYouRow: View {
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("needsYou-\(item.id)")
+        .task(id: item.id) {
+            guard item.answerAction != nil || item.text.count > item.reason.count + 40 else { return }
+            assist = await OnDeviceFeatures.needsYouAssist(item)
+        }
         .sheet(item: Binding(get: { answering.map(AnswerDraft.init) }, set: { answering = $0?.text })) { draft in
             NeedsYouAnswerSheet(item: item, text: draft.text, sendLabel: item.type == "comment_approval" ? "Approve" : "Send") { text, agentId in
                 if let a = item.answerAction { reply(a, text: text, agentId: agentId) }

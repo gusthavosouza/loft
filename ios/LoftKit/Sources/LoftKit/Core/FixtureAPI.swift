@@ -897,6 +897,21 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
                                  waitingForLead: d.waitingForLead, waitingOnYou: d.waitingOnYou)
         }
     }
+    /// Start delivery on an open spec without a Delivery: it starts on the Backend Agent with one ticket.
+    public func issueDeliveryAction(taskId: String, _ action: IssueDeliveryAction) async throws -> IssueDeliveryReply {
+        try check()
+        try locked {
+            guard action == .start, let g = taskList.first(where: { $0.id == taskId })?.github,
+                  !deliveryList.contains(where: { !$0.local && $0.repo == g.repo && $0.spec == g.number }) else {
+                throw APIError.server(status: 409, message: "It already started.")
+            }
+            deliveryList.append(DeliverySummary(state: "running", agentName: "Backend Agent", repo: g.repo, spec: g.number, specId: nil, local: false,
+                                                current: .init(number: g.number + 100, title: "First ticket"),
+                                                tickets: [.init(number: g.number + 100, title: "First ticket", state: "started", agentName: "Backend Agent")]))
+        }
+        guard let d = try await issueDelivery(taskId: taskId) else { throw APIError.server(status: 404, message: "not found") }
+        return IssueDeliveryReply(delivery: d, message: nil)
+    }
     public func mergeDelivery(repo: String, spec: Int) async throws -> String {
         try check()
         try await Task.sleep(for: .milliseconds(800))

@@ -27,7 +27,7 @@ final class MacAlerts: NSObject, UNUserNotificationCenterDelegate {
         let list = withObservationTracking { store.needsYou } onChange: { [weak self] in
             Task { @MainActor in self?.watch() }
         }
-        NSApp?.dockTile.badgeLabel = (list?.count ?? 0) > 0 ? "\(list?.count ?? 0)" : nil
+        NSApp?.dockTile.badgeLabel = NeedsYouAlerts.badge(for: list)
         guard let list else { return }
         let fresh = alerts.fresh(in: list)
         if !fresh.isEmpty, !NSApp.isActive { Task { await post(fresh) } }

@@ -447,6 +447,14 @@ public struct LiveLoftAPI: LoftAPI {
     }
 
     public func usage() async throws -> PlanUsage { try await get("/usage") }
+
+    /// What every agent's runs cost over the Usage week (`GET /api/agents/summary?totals=true`), in US dollars.
+    /// Only the widgets read it, so it isn't part of `LoftAPI`.
+    public func weekSpend() async throws -> Double {
+        struct Totals: Decodable { struct Period: Decodable { var costUsd: Double }; var period: Period }
+        let totals: Totals = try await get("/agents/summary", query: [URLQueryItem(name: "totals", value: "true")])
+        return totals.period.costUsd
+    }
     public func system() async throws -> SystemReading { try await get("/system") }
     public func agentSummaries() async throws -> [AgentSummary] { try await get("/agents/summary") }
 

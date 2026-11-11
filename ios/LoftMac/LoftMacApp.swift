@@ -7,6 +7,7 @@ struct LoftMacApp: App {
     @State private var store: LoftStore
     @State private var nav: MacNav
     @State private var alerts: MacAlerts
+    @State private var voice: VoiceSession
 
     init() {
         Prefs.registerDefaults()
@@ -17,6 +18,7 @@ struct LoftMacApp: App {
         let nav = MacNav()
         _nav = State(initialValue: nav)
         _alerts = State(initialValue: MacAlerts(store: store, nav: nav))
+        _voice = State(initialValue: VoiceSession(store: store))
     }
 
     private static func makeAPI() -> LoftAPI? {
@@ -39,8 +41,11 @@ struct LoftMacApp: App {
             MacRootView()
                 .environment(store)
                 .environment(nav)
+                .environment(voice)
                 .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
+                // A tap on a widget.
+                .onOpenURL { url in if let link = DeepLink(url: url) { nav.open(link) } }
                 #if DEBUG
                 .task {
                     let args = ProcessInfo.processInfo.arguments
@@ -92,17 +97,27 @@ enum MacSection: Int, CaseIterable, Identifiable {
     }
 }
 
-/// Where the window is: the section, the agent whose chat is open, and the New message picker.
+/// Where the window is: the section, the agent whose chat is open, the issue pages open, and the New message picker.
 @MainActor
 @Observable
 final class MacNav {
     var section: MacSection = .agents
     var agentId: String?
     var picksRecipient = false
+    /// The issue pages open in the Issues section, from the board's card on.
+    var issuePath: [String] = []
 
     func openChat(_ agentId: String) {
         section = .agents
         self.agentId = agentId
+    }
+
+    func open(_ link: DeepLink) {
+        switch link {
+        case .needsYou: section = .needsYou
+        case .agents: section = .agents
+        case .agent(let id): openChat(id)
+        }
     }
 }
 
@@ -119,6 +134,10 @@ struct LoftCommands: Commands {
                 Button(s.title) { nav.section = s }
                     .keyboardShortcut(KeyEquivalent(Character(String(s.rawValue))))
             }
+            Divider()
+            Button("Back") { nav.issuePath.removeLast() }
+                .keyboardShortcut("[")
+                .disabled(nav.section != .issues || nav.issuePath.isEmpty)
         }
     }
 }
@@ -206,12 +225,9 @@ struct MainWindow: View {
             switch nav.section {
             case .overview: OverviewSection()
             case .agents: AgentsSection()
+            case .issues: IssuesSection()
             case .needsYou: NeedsYouScreen()
             case .settings: SettingsSection()
-            default:
-                ContentUnavailableView(nav.section.title, systemImage: nav.section.symbol,
-                                       description: Text("Coming to Loft for Mac soon. Use the web app for it meanwhile."))
-                    .navigationTitle(nav.section.title)
             }
         }
         .sheet(isPresented: $nav.picksRecipient) { RecipientPicker() }

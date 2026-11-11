@@ -112,6 +112,11 @@ public struct IssueDeliveryReply: Decodable {
     public var delivery: IssueDelivery
     public var message: String?
 
+    public init(delivery: IssueDelivery, message: String?) {
+        self.delivery = delivery
+        self.message = message
+    }
+
     private enum Keys: String, CodingKey { case message }
     public init(from decoder: Decoder) throws {
         delivery = try IssueDelivery(from: decoder)

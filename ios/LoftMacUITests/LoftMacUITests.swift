@@ -109,6 +109,43 @@ final class LoftMacUITests: XCTestCase {
         shot("Sent with @ and #")
     }
 
+    /// Settings › Apple Intelligence on the fixture model status: unavailable says why and disables the switches;
+    /// available enables them.
+    func testAppleIntelligenceSettingsFollowTheModelStatus() {
+        launch(["-ui-testing", "-fixture-ai-status", "off"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("5", modifierFlags: .command)
+        let status = app.staticTexts["onDeviceModelStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["onDeviceModelStatus"].exists)
+        XCTAssertFalse(app.checkBoxes["aiRouteToggle"].isEnabled)
+        shot("Apple Intelligence off")
+        app.terminate()
+        launch(["-ui-testing", "-fixture-ai-status", "available"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("5", modifierFlags: .command)
+        XCTAssertTrue(app.checkBoxes["aiRouteToggle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.checkBoxes["aiRouteToggle"].isEnabled)
+        XCTAssertTrue(app.checkBoxes["aiChatRepliesToggle"].isEnabled)
+        shot("Apple Intelligence available")
+    }
+
+    /// Clicking the chat's mic opens Talk with that agent in To:; Cancel returns to the chat.
+    func testMicOpensTalkWithTheAgent() {
+        launch(["-ui-testing", "-no-speech"])
+        let list = app.outlines["agentsList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        list.cells.containing(.any, identifier: "agentRow-Orchestrator").firstMatch.click()
+        let mic = app.descendants(matching: .any)["micButton"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 10))
+        mic.click()
+        XCTAssertTrue(app.buttons["talkCancel"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["talkTo-Orchestrator"].exists, "the agent is in To:")
+        shot("Talk")
+        app.buttons["talkCancel"].click()
+        XCTAssertTrue(app.textFields["composerField"].waitForExistence(timeout: 5))
+    }
+
     /// ⌘N opens New message, and picking an agent opens its chat.
     func testNewMessageShortcut() {
         launch(["-ui-testing"])
@@ -132,17 +169,20 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertTrue(stats.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["REPOSITORIES"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["agentCard-Backend Agent"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Loft for Mac"].waitForExistence(timeout: 5), "Open pull requests list the fixture's PR")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Loft for Mac")).firstMatch
+            .waitForExistence(timeout: 10), "Open pull requests list the fixture's PR")
         shot("Overview")
     }
 
     /// ⌘4: a question's Reply opens a sheet; Send answers it and the item goes.
     func testNeedsYouReply() {
-        launch(["-ui-testing"])
+        // The on-device model's summaries would move the row under the click; off, as on a Mac without it.
+        launch(["-ui-testing", "-no-ai"])
         XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
         app.typeKey("4", modifierFlags: .command)
         let row = app.descendants(matching: .any)["needsYou-question:1"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Run the suite"].exists)
         shot("Needs you")
         row.buttons["needsYouAnswer"].click()
         let field = app.textViews["needsYouAnswerField"]
@@ -205,4 +245,51 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["paired-iPhone"].waitForExistence(timeout: 10))
         shot("Settings")
     }
+
+    /// The Issues board: the Issues column first, All / Issues / Specs, a spec's page with its tickets, and Start
+    /// delivery on a spec that waits for one.
+    func testIssuesBoardFilterOpensASpecAndStartsDelivery() {
+        launch(["-ui-testing", "-fixture-specs"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("3", modifierFlags: .command)
+        let issues = app.descendants(matching: .any)["boardColumn-issues"]
+        let planned = app.descendants(matching: .any)["boardColumn-planned"]
+        XCTAssertTrue(issues.waitForExistence(timeout: 10))
+        XCTAssertTrue(planned.exists)
+        XCTAssertLessThan(issues.frame.minX, planned.frame.minX, "the Issues column comes first")
+        XCTAssertTrue(card("issueCard-Renew the domain").exists, "an issue that is no spec's ticket")
+        XCTAssertFalse(card("issueCard-Implement backend endpoints").exists, "a spec's ticket stays with its spec")
+        XCTAssertTrue(card("specCard-Offline mode").exists)
+        shot("Issues board")
+
+        let type = app.radioGroups["boardType"]
+        type.radioButtons["Specs"].click()
+        XCTAssertTrue(issues.waitForNonExistence(timeout: 5), "Specs hides the Issues column")
+        XCTAssertTrue(card("specCard-Implement settings functionality").exists)
+        type.radioButtons["Issues"].click()
+        XCTAssertTrue(planned.waitForNonExistence(timeout: 5), "Issues hides the spec columns")
+        XCTAssertTrue(card("issueCard-Renew the domain").exists)
+        type.radioButtons["All"].click()
+
+        // A spec in Delivery: its state, who has which ticket, its progress and its tickets.
+        card("specCard-Implement settings functionality").click()
+        XCTAssertTrue(card("deliveryState").waitForExistence(timeout: 10))
+        XCTAssertEqual(card("deliveryProgress").label, "1 of 5 tickets done")
+        for t in ["Backend endpoints", "iOS screen", "Docs", "QA"] { XCTAssertTrue(card("ticketRow-\(t)").exists, t) }
+        XCTAssertFalse(card("delivery-start").exists, "it started")
+        shot("Spec page")
+        app.typeKey("[", modifierFlags: .command)
+
+        // A spec that waits: Start delivery starts it.
+        XCTAssertTrue(card("specCard-Offline mode").waitForExistence(timeout: 5))
+        card("specCard-Offline mode").click()
+        let start = app.buttons["delivery-start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        start.click()
+        XCTAssertTrue(card("deliveryRunning").waitForExistence(timeout: 10), "the card says who has the first ticket")
+        XCTAssertFalse(start.exists)
+        shot("Delivery started")
+    }
+
+    private func card(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
 }

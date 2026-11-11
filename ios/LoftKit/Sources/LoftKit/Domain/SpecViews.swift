@@ -162,3 +162,42 @@ public enum SpecViews {
         agents.contains { $0.team == group && ((!t.project.isEmpty && $0.allProjects.contains(t.project)) || $0.id == t.agentId) }
     }
 }
+
+/// The Issues board as the web shows it (`SpecBoard.tsx`): the Issues column, the spec stage columns, or both.
+public enum BoardType: String, CaseIterable, Identifiable {
+    case all, issues, specs
+
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .all: "All"
+        case .issues: "Issues"
+        case .specs: "Specs"
+        }
+    }
+}
+
+extension SpecViews {
+    /// A spec's ticket: it has a parent, names its spec in the template's `## Parent` section, or is in a Delivery's
+    /// tickets (the web's `isSpecTicket`).
+    public static func isSpecTicket(_ t: HBTask, _ deliveries: [DeliverySummary]) -> Bool {
+        t.parentId != nil
+            || t.description.range(of: #"(?m)^## Parent\s+#\d+"#, options: .regularExpression) != nil
+            || deliveries.contains { d in
+                d.tickets.contains { x in x.id.map { $0 == t.id } ?? (t.github.map { d.repo == $0.repo && x.number == $0.number } ?? false) }
+            }
+    }
+
+    /// The board's Issues column: the issues that are no spec and no spec's ticket, closed ones only when asked for,
+    /// open ones first, then the most recently updated (the web's `boardIssues`).
+    public static func boardIssues(_ tasks: [HBTask], _ deliveries: [DeliverySummary], showClosed: Bool) -> [HBTask] {
+        tasks.filter { !isSpec($0) && !isSpecTicket($0, deliveries) && (showClosed || !$0.state.isClosed) }
+            .sorted { a, b in a.state.isClosed != b.state.isClosed ? !a.state.isClosed : a.updatedAt > b.updatedAt }
+    }
+
+    /// The specs in one stage column, the most recently updated first.
+    public static func specs(_ tasks: [HBTask], in stage: SpecStage, _ index: [String: DeliverySummary]) -> [HBTask] {
+        tasks.filter { isSpec($0) && self.stage(of: $0, delivery(of: $0, in: index)) == stage }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+}

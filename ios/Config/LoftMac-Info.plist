@@ -9,5 +9,21 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- loft://needs-you and friends: a tap on a widget. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>loft</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Loft listens when you dictate or talk to an agent.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Loft turns what you say into text for your message.</string>
 </dict>
 </plist>

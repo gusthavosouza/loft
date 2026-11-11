@@ -57,20 +57,39 @@ public struct PairingPoll: Decodable, Equatable {
 }
 
 /// This app's token for one Loft server, in the Keychain only (`AfterFirstUnlockThisDeviceOnly`: not in backups,
-/// not synced). In the Simulator nothing is ever read or written.
+/// not synced). In the Simulator nothing is ever read or written. The item sits in the Keychain group the apps and
+/// the widgets share (`<team>.<bundle id>.shared`, the first group in their entitlements), so the widgets read the
+/// token through LoftKit with no other storage: the item's account is the server's address.
 public enum ClientToken {
     private static let service = "loft.client-token"
+    /// The shared group's name ends with this; a token saved before the widgets existed sits in the app's own group.
+    private static let sharedSuffix = ".shared"
 
     public static func load(for server: URL) -> String? {
+        read(query(server))?.token
+    }
+
+    /// The server and token the apps paired with, for a widget that doesn't know the address; nil when unpaired.
+    public static func paired() -> (server: URL, token: String)? {
+        guard let found = read(query(nil)), let server = found.server else { return nil }
+        return (server, found.token)
+    }
+
+    private static func read(_ base: [CFString: Any]) -> (token: String, server: URL?)? {
         #if targetEnvironment(simulator)
         return nil
         #else
-        var q = query(server)
+        var q = base
         q[kSecReturnData] = true
+        q[kSecReturnAttributes] = true
         q[kSecMatchLimit] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let item = out as? [CFString: Any],
+              let data = item[kSecValueData] as? Data, let token = String(data: data, encoding: .utf8) else { return nil }
+        let server = (item[kSecAttrAccount] as? String).flatMap(URL.init(string:))
+        // Moves a token from before the widgets into the shared group.
+        if let server, let group = item[kSecAttrAccessGroup] as? String, !group.hasSuffix(sharedSuffix) { save(token, for: server) }
+        return (token, server)
         #endif
     }
 
@@ -93,7 +112,13 @@ public enum ClientToken {
         #endif
     }
 
-    private static func query(_ server: URL) -> [CFString: Any] {
-        [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: server.absoluteString]
+    private static func query(_ server: URL?) -> [CFString: Any] {
+        var q: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service]
+        if let server { q[kSecAttrAccount] = server.absoluteString }
+        #if os(macOS)
+        // Access groups only exist in the data protection Keychain.
+        q[kSecUseDataProtectionKeychain] = true
+        #endif
+        return q
     }
 }

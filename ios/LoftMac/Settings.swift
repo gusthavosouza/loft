@@ -22,9 +22,10 @@ struct SettingsSection: View {
 
     var body: some View {
         Form {
-            Section("Loft address") {
+            Section {
                 AddressForm(isOnboarding: false).padding(.vertical, 4)
             }
+            Section { AppleIntelligenceSection().toggleStyle(.checkbox).padding(.vertical, 4) }
             if saved != nil {
                 if !pendingRestart.isEmpty || restarting { restartBanner }
                 general

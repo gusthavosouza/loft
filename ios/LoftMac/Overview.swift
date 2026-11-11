@@ -217,7 +217,7 @@ private struct GithubList: View {
                 ForEach(rows.prefix(8), id: \.item.id) { r in
                     Link(destination: URL(string: r.item.url) ?? URL(string: "https://github.com")!) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text("\(r.repo.split(separator: "/").last.map(String.init) ?? r.repo)#\(r.item.number)").font(.caption.monospaced()).foregroundStyle(.secondary)
+                            Text("\(r.repo.split(separator: "/").last.map(String.init) ?? r.repo)#" + String(r.item.number)).font(.caption.monospaced()).foregroundStyle(.secondary)
                             Text(r.item.title).lineLimit(1)
                             if r.item.draft { Text("draft").font(.caption).foregroundStyle(.secondary) }
                             Spacer()

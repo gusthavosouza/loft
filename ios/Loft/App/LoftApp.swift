@@ -57,7 +57,11 @@ struct LoftApp: App {
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .onAppear { AppDelegate.open = { router.open($0) } }
                 // `loft://task/<id>`: from a message, a note or another app.
-                .onOpenURL { url in if let id = TaskLink.id(from: url) { router.open(.task(taskId: id)) } }
+                .onOpenURL { url in
+                    if let id = TaskLink.id(from: url) { router.open(.task(taskId: id)) }
+                    // A tap on a widget.
+                    else if let link = DeepLink(url: url) { router.openLink(link) }
+                }
                 // Once the server says it can push, register this phone (and again when the server changes).
                 .task(id: store.info?.supports(.push) == true) { await PushRegistrar.shared.start() }
         }
@@ -107,6 +111,18 @@ final class Router {
             case .editTask(let t): "edit-\(t.id)"
             case .pickRecipient: "recipient"
             }
+        }
+    }
+
+    /// A tapped widget.
+    func openLink(_ link: DeepLink) {
+        switch link {
+        case .needsYou: open(.needsYou)
+        case .agent(let id): open(.chat(agentId: id))
+        case .agents:
+            composer = nil
+            tab = .agents
+            agentsPath = NavigationPath()
         }
     }
 
