@@ -122,6 +122,18 @@ public protocol LoftAPI: Sendable {
     func pairedClients() async throws -> [PairedClient]
     func forgetClient(id: String) async throws
     func unpairAll() async throws
+    /// The web's home summary (Loft for Mac's Overview): the projects folder's repos and their GitHub PRs and issues.
+    func repos() async throws -> [RepoSummary]
+    func repoGithub() async throws -> [String: RepoGithub]
+    func agentsTotals() async throws -> AgentsTotals
+    /// `GET /api/settings` whole: `settings`, `github_token_set`, `pending_restart`, `running_agents`.
+    func settingsView() async throws -> JSONValue
+    /// Restarts Loft to apply restart-only settings; refused (409) while agents run.
+    func restart() async throws
+    /// What's left of GitHub's hourly limit and where Loft's requests went (`GET /api/github/budget`).
+    func githubBudget() async throws -> JSONValue
+    /// Whether macOS lets the agents into the folders it guards (`POST /api/system/mac-access`).
+    func macAccess() async throws -> JSONValue
 }
 
 public struct LiveLoftAPI: LoftAPI {
@@ -469,6 +481,13 @@ public struct LiveLoftAPI: LoftAPI {
     public func forgetClient(id: String) async throws { _ = try await send("DELETE", "/paired-clients/\(id)") }
 
     public func unpairAll() async throws { _ = try await send("POST", "/paired-clients/unpair-all", body: [:]) }
+    public func repos() async throws -> [RepoSummary] { try await get("/repos") }
+    public func repoGithub() async throws -> [String: RepoGithub] { try await get("/repos/github") }
+    public func agentsTotals() async throws -> AgentsTotals { try await get("/agents/summary", query: [URLQueryItem(name: "totals", value: "true")]) }
+    public func settingsView() async throws -> JSONValue { try await get("/settings") }
+    public func restart() async throws { _ = try await send("POST", "/restart", body: [:]) }
+    public func githubBudget() async throws -> JSONValue { try await get("/github/budget") }
+    public func macAccess() async throws -> JSONValue { try decode(JSONValue.self, try await send("POST", "/system/mac-access", body: [:], timeout: 60)) }
 
     public func eventLines() async throws -> AsyncThrowingStream<String, Error> {
         var req = URLRequest(url: url("/events"))
@@ -578,4 +597,11 @@ extension LoftAPI {
     public func pairedClients() async throws -> [PairedClient] { throw APIError.unsupported("Pairing") }
     public func forgetClient(id: String) async throws { throw APIError.unsupported("Pairing") }
     public func unpairAll() async throws { throw APIError.unsupported("Pairing") }
+    public func repos() async throws -> [RepoSummary] { throw APIError.unsupported("Repos") }
+    public func repoGithub() async throws -> [String: RepoGithub] { throw APIError.unsupported("Repos") }
+    public func agentsTotals() async throws -> AgentsTotals { throw APIError.unsupported("Spend") }
+    public func settingsView() async throws -> JSONValue { throw APIError.unsupported("Server settings") }
+    public func restart() async throws { throw APIError.unsupported("Restart") }
+    public func githubBudget() async throws -> JSONValue { throw APIError.unsupported("GitHub API") }
+    public func macAccess() async throws -> JSONValue { throw APIError.unsupported("Mac access") }
 }

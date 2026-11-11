@@ -373,6 +373,8 @@ public struct AgentSummary: Codable, Hashable, Identifiable {
     /// [[tool name, count], …]
     public var topTools: [JSONValue]
     public var prs: PRCounts
+    /// Estimated at API list prices; nil from an older server.
+    public var costUsd: Double? = nil
 
     public var id: String { agent.id }
     public var runs: Int { dailyAuto.reduce(0, +) + dailyUser.reduce(0, +) }

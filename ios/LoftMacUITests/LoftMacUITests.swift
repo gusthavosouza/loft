@@ -1,6 +1,7 @@
 import XCTest
 
-/// Loft for Mac on fixture data (`-ui-testing`): pairing, the agents list and sending with @ and #.
+/// Loft for Mac on fixture data (`-ui-testing`): pairing, the agents list, sending with @ and #, Overview, Needs you
+/// and Settings with Clean.
 final class LoftMacUITests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -157,6 +158,92 @@ final class LoftMacUITests: XCTestCase {
         search.typeText("QA\r")
         XCTAssertTrue(app.textFields["composerField"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textFields["composerField"].placeholderValue, "Message QA Agent")
+    }
+
+    /// ⌘1: the web's home summary, and a card per agent.
+    func testOverviewShowsSummary() {
+        launch(["-ui-testing"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("1", modifierFlags: .command)
+        let stats = app.descendants(matching: .any)["overviewStats"]
+        XCTAssertTrue(stats.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["REPOSITORIES"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["agentCard-Backend Agent"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Loft for Mac")).firstMatch
+            .waitForExistence(timeout: 10), "Open pull requests list the fixture's PR")
+        shot("Overview")
+    }
+
+    /// ⌘4: a question's Reply opens a sheet; Send answers it and the item goes.
+    func testNeedsYouReply() {
+        // The on-device model's summaries would move the row under the click; off, as on a Mac without it.
+        launch(["-ui-testing", "-no-ai"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("4", modifierFlags: .command)
+        let row = app.descendants(matching: .any)["needsYou-question:1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Run the suite"].exists)
+        shot("Needs you")
+        row.buttons["needsYouAnswer"].click()
+        let field = app.textViews["needsYouAnswerField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.click()
+        field.typeText("B2, please")
+        shot("Needs you reply")
+        app.buttons["needsYouAnswerSend"].click()
+        XCTAssertTrue(app.descendants(matching: .any)["needsYouNotice"].waitForExistence(timeout: 5))
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: row)
+        waitForExpectations(timeout: 10)
+    }
+
+    /// Settings › Disk › Check space: tick one item, Delete selected, and the log says what was freed.
+    func testCleanRun() {
+        launch(["-ui-testing"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("5", modifierFlags: .command)
+        let check = app.buttons["checkSpace"]
+        XCTAssertTrue(check.waitForExistence(timeout: 10))
+        XCTAssertTrue(check.isEnabled)
+        check.click()
+        XCTAssertTrue(app.descendants(matching: .any)["left-a2"].waitForExistence(timeout: 10), "Loft Reviewer's leftover processes show")
+        let tick = app.checkBoxes["tick-test-run.log"]
+        XCTAssertTrue(tick.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.checkBoxes["tick-loft"].firstMatch.isEnabled, "A main clone that isn't checked can't be ticked")
+        tick.click()
+        XCTAssertEqual(app.staticTexts["cleanSummary"].value as? String ?? app.staticTexts["cleanSummary"].label, "1 selected · 12 MB")
+        shot("Clean")
+        app.buttons["cleanConfirm"].click()
+        let summary = app.staticTexts["cleanLogSummary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 10))
+        let text = summary.value as? String ?? summary.label
+        XCTAssertTrue(text.hasPrefix("Freed 12 MB · 1 removed"), text)
+        shot("Clean log")
+        app.buttons["cleanDone"].click()
+        XCTAssertTrue(app.descendants(matching: .any)["lastClean"].waitForExistence(timeout: 10), "Disk shows the run")
+    }
+
+    /// Settings: a change shows Save, saving keeps it, and paired devices list.
+    func testSettingsSave() {
+        launch(["-ui-testing"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("5", modifierFlags: .command)
+        let toggle = app.descendants(matching: .any)["messagingRulesToggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        XCTAssertEqual(toggle.value as? Int, 1)
+        toggle.click()
+        let save = app.buttons["settingsSaveAll"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.click()
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: save)
+        waitForExpectations(timeout: 10)
+        app.typeKey("1", modifierFlags: .command)
+        app.typeKey("5", modifierFlags: .command)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        XCTAssertEqual(toggle.value as? Int, 0, "Saved off, and loaded again off")
+        XCTAssertTrue(app.descendants(matching: .any)["paired-iPhone"].waitForExistence(timeout: 10))
+        shot("Settings")
     }
 
     /// The Issues board: the Issues column first, All / Issues / Specs, a spec's page with its tickets, and Start
