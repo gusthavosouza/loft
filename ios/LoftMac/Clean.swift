@@ -50,7 +50,7 @@ struct CleanSheet: View {
                 if items == nil && log == nil { ProgressView().controlSize(.small) }
                 Spacer()
             }
-            if let error { Text(error).foregroundStyle(.red).accessibilityIdentifier("cleanError") }
+            if let error { Text(error).foregroundStyle(Theme.failureInk).accessibilityIdentifier("cleanError") }
             if let log {
                 logView(log)
             } else if let items {
@@ -128,7 +128,7 @@ struct CleanSheet: View {
             copyButton(chosen.map { ($0.agent, $0.command) })
             Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             Button("Delete selected", role: .destructive) { confirm() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.accent)
                 .disabled(chosen.isEmpty || !store.canWrite)
                 .accessibilityIdentifier("cleanConfirm")
         }
@@ -204,7 +204,7 @@ struct CleanSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(i.name).font(.body.monospaced()).lineLimit(1).truncationMode(.middle)
                     if ticked.contains(i.path), !i.warning.isEmpty, checks[i.path] == nil {
-                        Text(i.warning).font(.caption).foregroundStyle(.orange)
+                        Text(i.warning).font(.caption).foregroundStyle(Theme.attentionInk)
                     }
                     if i.canCheck, depth == 0 { checkLine(i) }
                     if !i.note.isEmpty { Text(i.note).font(.caption).foregroundStyle(.secondary) }
@@ -216,7 +216,7 @@ struct CleanSheet: View {
             Text(bytesText(i.bytes)).monospacedDigit().frame(width: 80, alignment: .trailing)
             Text(i.changed.shortAgo).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(status.text).foregroundStyle(status.locked ? .orange : .green).lineLimit(3)
+                Text(status.text).foregroundStyle(status.locked ? Theme.attentionInk : Theme.working).lineLimit(3)
                 if !status.locked, !i.label.isEmpty { Text(i.label).font(.caption).foregroundStyle(.secondary) }
             }
             .frame(width: 180, alignment: .leading)
@@ -233,11 +233,11 @@ struct CleanSheet: View {
             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Checking git…") }.font(.caption).foregroundStyle(.secondary)
         case .some(.some(let c)):
             Text(c.text).font(.caption)
-                .foregroundStyle(c.state == "safe" ? Color.green : c.state == "unsafe" ? Color.orange : Color.secondary)
+                .foregroundStyle(c.state == "safe" ? Theme.working : c.state == "unsafe" ? Theme.attentionInk : Color.secondary)
                 .accessibilityIdentifier("check-\(i.rel)")
-            Button("Check again") { check(i) }.buttonStyle(.link).font(.caption)
+            Button("Check again") { check(i) }.buttonStyle(.link).foregroundStyle(Theme.accent).font(.caption)
         case .none:
-            Button("Check git") { check(i) }.buttonStyle(.link).font(.caption).accessibilityIdentifier("checkButton-\(i.rel)")
+            Button("Check git") { check(i) }.buttonStyle(.link).foregroundStyle(Theme.accent).font(.caption).accessibilityIdentifier("checkButton-\(i.rel)")
         }
     }
 
@@ -285,7 +285,7 @@ struct CleanSheet: View {
                 Section(name(group.agent)) {
                     ForEach(group.items) { l in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(l.text).font(.callout.monospaced()).foregroundStyle(l.error == nil ? Color.primary : Color.red)
+                            Text(l.text).font(.callout.monospaced()).foregroundStyle(l.error == nil ? Color.primary : Theme.failureInk)
                             if !l.command.isEmpty { Text(l.command).font(.caption.monospaced()).foregroundStyle(.secondary) }
                         }
                         .textSelection(.enabled)

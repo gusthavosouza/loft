@@ -58,9 +58,9 @@ struct NeedsYouRow: View {
 
     private var color: Color {
         switch item.urgency {
-        case 3: .red
-        case 2: .orange
-        case 1: .accentColor
+        case 3: Theme.failure
+        case 2: Theme.attention
+        case 1: Theme.accent
         default: .secondary
         }
     }
@@ -97,7 +97,7 @@ struct NeedsYouRow: View {
                 }
             }
             .controlSize(.small)
-            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error { Text(error).font(.caption).foregroundStyle(Theme.failureInk) }
         }
         .padding(12)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -130,13 +130,13 @@ struct NeedsYouRow: View {
             }
         case "answer":
             Button(a.label) { answering = a.draft }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.accent)
                 .accessibilityIdentifier("needsYouAnswer")
         case "deny":
             Button(a.label, role: .destructive) { run(a) }.disabled(busy)
         default:
             if a.kind == "approve" || a.kind == "merge" {
-                Button(a.label) { run(a) }.buttonStyle(.borderedProminent).disabled(busy || !store.canWrite)
+                Button(a.label) { run(a) }.buttonStyle(.accent).disabled(busy || !store.canWrite)
             } else {
                 Button(a.label) { run(a) }.disabled(busy || !store.canWrite)
             }
@@ -234,7 +234,7 @@ private struct NeedsYouAnswerSheet: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(sendLabel) { send(text, asksForAgent ? agentId : nil); dismiss() }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.accent)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("needsYouAnswerSend")
             }

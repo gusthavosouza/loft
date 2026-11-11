@@ -276,7 +276,7 @@ struct RecipientPicker: View {
 }
 
 #if DEBUG
-/// `-render-window <folder>`: draws the main window to PNGs (pairing, or a chat and the Issues board), then quits.
+/// `-render-window <folder>`: draws the main window to PNGs (pairing, or a chat, Issues, Overview and Needs you), then quits.
 /// For screenshots when a UI test can't drive the app (another copy of it is open, and XCUITest picks that one).
 @MainActor
 func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
@@ -300,9 +300,11 @@ func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
         if let id = store.agents.first(where: { $0.name == "Orchestrator" })?.id { nav.openChat(id) }
         try? await Task.sleep(for: .seconds(2))
         png("agents")
-        nav.section = .issues
-        try? await Task.sleep(for: .seconds(2))
-        png("issues")
+        for section in [MacSection.issues, .overview, .needsYou] {
+            nav.section = section
+            try? await Task.sleep(for: .seconds(2))
+            png("\(section)")
+        }
     }
     NSApp.terminate(nil)
 }

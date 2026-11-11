@@ -61,7 +61,7 @@ struct SettingsSection: View {
                 PairedDevicesSettings()
                 MacAccessSettings()
             } else if let error {
-                Text(error).foregroundStyle(.red)
+                Text(error).foregroundStyle(Theme.failureInk)
             } else {
                 ProgressView().frame(maxWidth: .infinity)
             }
@@ -125,7 +125,7 @@ struct SettingsSection: View {
     private var restartBanner: some View {
         Section {
             HStack {
-                Image(systemName: "arrow.clockwise").foregroundStyle(.orange)
+                Image(systemName: "arrow.clockwise").foregroundStyle(Theme.attentionInk)
                 if restarting {
                     Text("Restarting Loft…")
                 } else {
@@ -147,7 +147,7 @@ struct SettingsSection: View {
     private var saveBar: some View {
         HStack(spacing: 12) {
             if let error {
-                Text(error).foregroundStyle(.red).lineLimit(2)
+                Text(error).foregroundStyle(Theme.failureInk).lineLimit(2)
             } else {
                 Text("Unsaved changes").foregroundStyle(.secondary)
             }
@@ -155,7 +155,7 @@ struct SettingsSection: View {
             if dirty {
                 Button("Discard") { draft = saved ?? [:]; token = nil; error = nil; folderError = nil }
                 Button(saving ? "Saving…" : "Save") { Task { await save() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.accent)
                     .keyboardShortcut("s")
                     .disabled(saving || !store.canWrite)
                     .accessibilityIdentifier("settingsSaveAll")
@@ -240,7 +240,7 @@ private struct BackupsSettings: View {
             }
             .accessibilityIdentifier("backupLast")
             if let e = error ?? status?.error.map({ "The last backup failed \($0.at.formatted(.relative(presentation: .named))): \($0.message)" }) {
-                Label(e, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).accessibilityIdentifier("backupError")
+                Label(e, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.failureInk).accessibilityIdentifier("backupError")
             }
             Button(busy ? "Backing up…" : "Back up now") { Task { await backUp() } }
                 .disabled(busy || !store.canWrite)
@@ -259,7 +259,7 @@ private struct BackupsSettings: View {
             .pickerStyle(.segmented)
             if status?.icloud != nil, folder == status?.icloud {
                 Text("Backups in iCloud Drive leave this Mac: all your chats and your GitHub token are then stored by Apple. Save to use it.")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(Theme.attentionInk)
             }
             LabeledContent {
                 TextField("Backups folder", text: $folder, prompt: Text(status?.dir ?? "~/Library/Application Support/Loft/backups"))
@@ -268,7 +268,7 @@ private struct BackupsSettings: View {
                 Text("Backups folder")
                 Text("Loft backs up its database and settings once a day, owner-only, and keeps 7 daily and 4 weekly backups. Point it at an external disk to survive this Mac's disk.")
             }
-            if let folderError { Text(folderError).font(.caption).foregroundStyle(.red) }
+            if let folderError { Text(folderError).font(.caption).foregroundStyle(Theme.failureInk) }
         }
         .task { status = try? await store.backups().status }
     }
@@ -301,7 +301,7 @@ private struct DiskSettings: View {
         Section("Disk") {
             HStack {
                 Text(sizes.map { s in s.freeBytes.map { "\(bytesText($0)) free\(s.isLow ? " · disk almost full" : "")" } ?? "Free space unknown." } ?? "Measuring…")
-                    .foregroundStyle(sizes?.isLow == true ? .orange : .primary)
+                    .foregroundStyle(sizes?.isLow == true ? Theme.attentionInk : .primary)
                     .accessibilityIdentifier("diskFree")
                 Spacer()
                 Button("Check space") { sheet = .check }
@@ -311,9 +311,9 @@ private struct DiskSettings: View {
             if let last, let at = last.at {
                 HStack {
                     Text("\(last.title ?? last.what) \(at.formatted(.relative(presentation: .named))) · freed \(bytesText(last.freedBytes)) from \(last.removed) item\(last.removed == 1 ? "" : "s")")
-                    if last.failed > 0 { Text("· \(last.failed) failed").foregroundStyle(.red) }
+                    if last.failed > 0 { Text("· \(last.failed) failed").foregroundStyle(Theme.failureInk) }
                     Spacer()
-                    Button("View log") { sheet = .log(last) }.buttonStyle(.link)
+                    Button("View log") { sheet = .log(last) }.buttonStyle(.link).foregroundStyle(Theme.accent)
                 }
                 .accessibilityIdentifier("lastClean")
             }
@@ -374,7 +374,7 @@ private struct GithubBudgetSettings: View {
                             Text("resets \(reset.formatted(date: .omitted, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                         }
                         ProgressView(value: max(0, min(1, left / limit)))
-                            .tint(left / limit < 0.1 ? .red : left / limit < 0.3 ? .orange : .green)
+                            .tint(left / limit < 0.1 ? Theme.failure : left / limit < 0.3 ? Theme.attention : Theme.working)
                     }
                 }
                 Text("The limit is per GitHub account, so the agents' own gh commands use it too.").font(.caption).foregroundStyle(.secondary)
@@ -438,7 +438,7 @@ private struct PairedDevicesSettings: View {
                     Spacer()
                     Button("Forget this device") { Task { await forget(c) } }
                         .buttonStyle(.borderless)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.failureInk)
                         .accessibilityIdentifier("forget-\(c.name)")
                 }
                 .accessibilityElement(children: .contain)
@@ -446,7 +446,7 @@ private struct PairedDevicesSettings: View {
             }
             HStack {
                 Button("Unpair all") { confirming = true }.disabled(others == 0)
-                if let error { Text(error).font(.caption).foregroundStyle(.red) }
+                if let error { Text(error).font(.caption).foregroundStyle(Theme.failureInk) }
             }
         } header: {
             Text("Paired devices")
@@ -497,7 +497,7 @@ private struct MacAccessSettings: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, i in
                     let state = i["state"]?.stringValue ?? ""
                     LabeledContent {
-                        Text(Self.states[state] ?? state).foregroundStyle(state == "allowed" ? .green : state == "blocked" ? .red : .orange)
+                        Text(Self.states[state] ?? state).foregroundStyle(state == "allowed" ? Theme.working : state == "blocked" ? Theme.failureInk : Theme.attentionInk)
                     } label: {
                         Text(i["label"]?.stringValue ?? "")
                         Text(i["folder"]?.stringValue ?? "").font(.caption.monospaced())
@@ -510,7 +510,7 @@ private struct MacAccessSettings: View {
                 Text("To let agents in for good: System Settings → Privacy & Security → Full Disk Access, press +, then ⇧⌘G and paste \(binary). Turn it on, then Check again.")
                     .font(.caption)
             }
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(Theme.failureInk) }
         } header: {
             Text("Mac access")
         }

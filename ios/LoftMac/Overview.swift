@@ -22,7 +22,7 @@ struct OverviewSection: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if let error {
-                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.failureInk)
                 }
                 stats
                 AgentActivity(totals: totals)
@@ -119,8 +119,8 @@ private struct AgentActivity: View {
     private var headline: some View {
         let working = store.agents.filter { store.state(of: $0) == .working }.count
         let waiting = summaries.reduce(0) { $0 + $1.pendingPermissions }
-        var line = Text("\(working) working").foregroundStyle(working > 0 ? Color.accentColor : .secondary)
-        if waiting > 0 { line = line + Text(" · \(waiting) waiting on you").foregroundStyle(.orange) }
+        var line = Text("\(working) working").foregroundStyle(working > 0 ? Theme.accent : .secondary)
+        if waiting > 0 { line = line + Text(" · \(waiting) waiting on you").foregroundStyle(Theme.attentionInk) }
         if let p = totals?.period {
             line = line + Text(" · \(p.runs) runs · \(dollars(p.costUsd)) \(p.kind == "usage_week" ? "this week" : "last 7 days")").foregroundStyle(.secondary)
             if p.previous.costUsd > 0 {
@@ -148,7 +148,7 @@ private struct AgentCard: View {
                 }
                 Spacer()
                 if s.pendingPermissions > 0 {
-                    Label("\(s.pendingPermissions) waiting", systemImage: "exclamationmark.shield").font(.caption).foregroundStyle(.orange)
+                    Label("\(s.pendingPermissions) waiting", systemImage: "exclamationmark.shield").font(.caption).foregroundStyle(Theme.attentionInk)
                 }
             }
             HStack {
@@ -188,7 +188,7 @@ private struct RunBars: View {
         HStack(alignment: .bottom, spacing: 3) {
             ForEach(Array(zip(user, auto).enumerated()), id: \.offset) { _, d in
                 VStack(spacing: 1) {
-                    Rectangle().fill(Color.accentColor).frame(height: CGFloat(d.0) / CGFloat(peak) * 40)
+                    Rectangle().fill(Theme.accent).frame(height: CGFloat(d.0) / CGFloat(peak) * 40)
                     Rectangle().fill(Color.secondary.opacity(0.4)).frame(height: CGFloat(d.1) / CGFloat(peak) * 40)
                 }
                 .frame(maxWidth: .infinity)
@@ -252,7 +252,7 @@ private struct RepoTable: View {
                             Text(r.name).fontWeight(.medium)
                             Text(r.branch).font(.callout.monospaced()).foregroundStyle(.secondary)
                             Text("\(r.commits30)").monospacedDigit()
-                            Text(local(r)).foregroundStyle(r.isDirty ? .orange : .secondary)
+                            Text(local(r)).foregroundStyle(r.isDirty ? Theme.attentionInk : .secondary)
                         }
                     }
                 }
