@@ -42,4 +42,33 @@ final class MenuBarSummaryTests: XCTestCase {
         XCTAssertEqual(s.needsCount, 0)
         XCTAssertTrue(s.items.isEmpty)
     }
+
+    /// The quick message goes to the picked agent, and to the Lead until one is picked.
+    @MainActor
+    func testTheQuickMessageGoesToTheChosenAgent() async throws {
+        let api = MockAPI()
+        let store = LoftStore(api: api, cache: SnapshotStore(url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        store.activate()
+        defer { store.deactivate() }
+        for _ in 0..<100 where store.connection != .connected { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(store.quickRecipient, "a1", "the only agent here")
+        let failure = await store.quickSend("hello", to: "a1")
+        XCTAssertNil(failure)
+        XCTAssertEqual(api.sentClientIds.count, 1)
+        XCTAssertTrue(store.pending.isEmpty)
+    }
+
+    /// A failed quick message says why and isn't left in the chat's unsent messages (the box keeps the text).
+    @MainActor
+    func testAFailedQuickMessageSaysWhy() async throws {
+        let api = MockAPI()
+        api.failSends = true
+        let store = LoftStore(api: api, cache: SnapshotStore(url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        store.activate()
+        defer { store.deactivate() }
+        for _ in 0..<100 where store.connection != .connected { try await Task.sleep(for: .milliseconds(50)) }
+        let failure = await store.quickSend("hello", to: "a1")
+        XCTAssertNotNil(failure)
+        XCTAssertTrue(store.pending.isEmpty)
+    }
 }

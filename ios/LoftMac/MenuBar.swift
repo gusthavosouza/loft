@@ -22,43 +22,51 @@ struct MenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
     @State private var recipient: String?
     @State private var text = ""
+    /// How the last quick message went: a short "Sent to …", or why it failed (the text is kept then).
+    @State private var result: (text: String, failed: Bool)?
 
     var body: some View {
         let s = MenuBarSummary(store)
-        VStack(alignment: .leading, spacing: 10) {
-            Section("Working now") {
-                if s.working.isEmpty {
-                    Text("Nobody is working").foregroundStyle(.secondary)
-                }
-                ForEach(s.working) { a in
-                    Button { open(agent: a.id) } label: { Label(a.name, systemImage: "bolt.fill").frame(maxWidth: .infinity, alignment: .leading) }
-                        .accessibilityIdentifier("menuAgent-\(a.name)")
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            header("Working now")
+            if s.working.isEmpty {
+                Text("Nobody is working").foregroundStyle(.secondary)
+            }
+            ForEach(s.working) { a in
+                Button { open(agent: a.id) } label: { Label(a.name, systemImage: "bolt.fill").frame(maxWidth: .infinity, alignment: .leading) }
+                    .accessibilityIdentifier("menuAgent-\(a.name)")
             }
             Divider()
-            Section(s.needsCount == 0 ? "Needs you" : "Needs you (\(s.needsCount))") {
-                if s.items.isEmpty {
-                    Text("Nothing is waiting").foregroundStyle(.secondary)
+            header(s.needsCount == 0 ? "Needs you" : "Needs you (\(s.needsCount))")
+            if s.items.isEmpty {
+                Text("Nothing is waiting").foregroundStyle(.secondary)
+            }
+            ForEach(s.items) { item in
+                Button { item.agentId.map { open(agent: $0) } ?? open(section: .needsYou) } label: {
+                    Text(item.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                ForEach(s.items) { item in
-                    Button { item.agentId.map { open(agent: $0) } ?? open(section: .needsYou) } label: {
-                        Text(item.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .accessibilityIdentifier("menuNeeds-\(item.id)")
-                }
-                if s.needsCount > s.items.count {
-                    Button("All \(s.needsCount)…") { open(section: .needsYou) }
-                }
+                .accessibilityIdentifier("menuNeeds-\(item.id)")
+            }
+            if s.needsCount > s.items.count {
+                Button("All \(s.needsCount)…") { open(section: .needsYou) }
             }
             Divider()
-            Picker("To", selection: Binding(get: { recipient ?? store.orchestrator?.id ?? store.sortedAgents.first?.id }, set: { recipient = $0 })) {
+            header("Quick message")
+            Picker("To", selection: Binding(get: { target }, set: { recipient = $0 })) {
                 ForEach(store.sortedAgents) { Text($0.name).tag(Optional($0.id)) }
             }
+            .buttonStyle(.bordered)
             .accessibilityIdentifier("menuRecipient")
             HStack {
-                TextField("Message", text: $text).onSubmit(send).accessibilityIdentifier("menuMessage")
-                Button("Send", action: send).disabled(target == nil || text.trimmingCharacters(in: .whitespaces).isEmpty)
+                TextField("Message \(targetName)", text: $text).textFieldStyle(.roundedBorder).onSubmit(send)
+                    .accessibilityIdentifier("menuMessage")
+                Button("Send", action: send).buttonStyle(.borderedProminent)
+                    .disabled(target == nil || text.trimmingCharacters(in: .whitespaces).isEmpty)
                     .accessibilityIdentifier("menuSend")
+            }
+            if let result {
+                Text(result.text).font(.caption).foregroundStyle(result.failed ? .red : .green)
+                    .accessibilityIdentifier("menuResult")
             }
             Divider()
             Button("Open Loft") { open(section: nil) }
@@ -69,13 +77,29 @@ struct MenuBarContent: View {
         .frame(width: 320)
     }
 
-    private var target: String? { recipient ?? store.orchestrator?.id ?? store.sortedAgents.first?.id }
+    private func header(_ title: String) -> some View {
+        Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
+    }
+
+    private var target: String? { recipient ?? store.quickRecipient }
+    private var targetName: String { store.agent(target)?.name ?? "" }
 
     private func send() {
         guard let id = target, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let t = text
+        let sent = text, name = targetName
         text = ""
-        Task { await store.send(t, to: id) }
+        result = nil
+        Task {
+            if let why = await store.quickSend(sent, to: id) {
+                // Kept, unless something new was typed meanwhile.
+                if text.isEmpty { text = sent }
+                result = (why, true)
+            } else {
+                result = ("Sent to \(name)", false)
+                try? await Task.sleep(for: .seconds(3))
+                if result?.failed == false { result = nil }
+            }
+        }
     }
 
     private func open(agent id: String) {
@@ -93,3 +117,24 @@ struct MenuBarContent: View {
         NSApp.activate(ignoringOtherApps: true)
     }
 }
+
+#if DEBUG
+/// `-render-menubar <folder>`: draws the popover and the bar label to PNGs once Loft's data is in, then quits. For
+/// screenshots where nobody can click the real menu bar item.
+@MainActor
+func renderMenuBar(store: LoftStore, nav: MacNav, to folder: String) async {
+    for _ in 0..<100 where store.needsYou == nil { try? await Task.sleep(for: .milliseconds(100)) }
+    try? await Task.sleep(for: .seconds(1))
+    func png<V: View>(_ view: V, _ name: String) {
+        let host = NSHostingView(rootView: view.environment(store).environment(nav).padding(8).background(Color(nsColor: .windowBackgroundColor)))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+    }
+    png(MenuBarContent(), "popover")
+    png(MenuBarLabel(), "label")
+    NSApp.terminate(nil)
+}
+#endif

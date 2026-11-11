@@ -37,6 +37,12 @@ struct LoftMacApp: App {
                 .environment(nav)
                 .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
+                #if DEBUG
+                .task {
+                    let args = ProcessInfo.processInfo.arguments
+                    if let i = args.firstIndex(of: "-render-menubar"), i + 1 < args.count { await renderMenuBar(store: store, nav: nav, to: args[i + 1]) }
+                }
+                #endif
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in store.saveNow() }
         }
         // Room for the sidebar, the agents, the chat and the agent's settings side by side.

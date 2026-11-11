@@ -24,3 +24,18 @@ public struct MenuBarSummary {
         }
     }
 }
+
+extension LoftStore {
+    /// Who the menu bar's quick message goes to until another agent is picked: the Lead, else the first agent.
+    public var quickRecipient: String? { orchestrator?.id ?? sortedAgents.first?.id }
+
+    /// Sends the quick message. Nil: it was sent. Else why it wasn't; the failed message isn't kept in the chat's
+    /// unsent ones, because the caller keeps the typed text to try again.
+    public func quickSend(_ text: String, to agentId: String) async -> String? {
+        let before = Set(pending.map(\.id))
+        await send(text, to: agentId)
+        guard let failed = pending.first(where: { !before.contains($0.id) && $0.failure != nil }) else { return nil }
+        discard(failed)
+        return failed.failure
+    }
+}
