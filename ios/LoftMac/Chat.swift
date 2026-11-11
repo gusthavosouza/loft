@@ -7,6 +7,19 @@ struct ChatView: View {
     @Environment(LoftStore.self) private var store
     let agent: Agent
     @State private var loadError: APIError?
+    @State private var draft = ""
+    /// The on-device model's replies to the agent's latest message, when it ends on a question.
+    @State private var suggested: (messageId: Int64, replies: [String])?
+    /// "Send to …?": the model thinks the message just sent to the Lead was meant for another agent.
+    @State private var route: (text: String, agentId: String)?
+
+    /// The agent's latest message, when it's the last word in the chat and ends on a question.
+    private var askingMessage: ChatMessage? {
+        guard store.pending(for: agent.id).isEmpty,
+              let m = store.conversation(agent.id).last(where: { $0.kind == "text" || $0.role == "user" }),
+              m.role == "assistant", m.kind == "text", ChatReplies.asksSomething(m.displayContent) else { return nil }
+        return m
+    }
 
     /// What the chat shows: the conversation's text, errors, notices and photos (not tool calls or thinking).
     private var shown: [ChatMessage] {
@@ -37,7 +50,47 @@ struct ChatView: View {
                 }
             }
             Divider()
-            Composer(agent: agent)
+            if let s = suggested, s.messageId == askingMessage?.id, draft.isEmpty, !s.replies.isEmpty {
+                HStack {
+                    ForEach(s.replies, id: \.self) { r in
+                        Button(r) { draft = r }.buttonStyle(.bordered).controlSize(.small)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 12).padding(.top, 8)
+                .accessibilityIdentifier("chatSuggestions")
+            }
+            if let r = route, let target = store.agent(r.agentId) {
+                HStack {
+                    Label("Send to \(target.name) too?", systemImage: "arrow.turn.up.right").font(.footnote)
+                    Spacer()
+                    Button("Send") { route = nil; Task { await store.send(r.text, to: r.agentId) } }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                        .accessibilityIdentifier("routeSend")
+                    Button { route = nil } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .accessibilityLabel("Not now")
+                        .accessibilityIdentifier("routeDismiss")
+                }
+                .padding(.horizontal, 12).padding(.top, 8)
+                .accessibilityIdentifier("routeSuggestion")
+            }
+            Composer(agent: agent, text: $draft) { sent in
+                route = nil
+                guard store.orchestratorId == agent.id, #available(macOS 26.0, *) else { return }
+                let id = agent.id
+                Task {
+                    guard let target = await OnDeviceFeatures.routeGuess(for: sent, agents: store.agents, orchestratorId: store.orchestratorId),
+                          agent.id == id else { return }
+                    route = (sent, target.id)
+                }
+            }
+        }
+        .task(id: askingMessage?.id) {
+            guard let m = askingMessage, suggested?.messageId != m.id else { return }
+            let replies = await OnDeviceFeatures.chatReplies(to: m.displayContent)
+            guard !Task.isCancelled else { return }
+            suggested = (m.id, replies)
         }
         .task(id: agent.id) {
             do { try await store.loadConversation(agent.id); loadError = nil } catch { loadError = APIError.from(error) }
@@ -172,7 +225,9 @@ private struct Attachment: Identifiable {
 private struct Composer: View {
     @Environment(LoftStore.self) private var store
     let agent: Agent
-    @State private var text = ""
+    @Binding var text: String
+    /// Called with the text just sent.
+    var sent: (String) -> Void = { _ in }
     @State private var attachments: [Attachment] = []
     @State private var picksFiles = false
     @FocusState private var focused: Bool
@@ -275,6 +330,7 @@ private struct Composer: View {
         let message = text, images = attachments.compactMap(\.uploaded)
         text = ""
         attachments = []
+        sent(message)
         Task { await store.send(message, to: agent.id, images: images) }
     }
 

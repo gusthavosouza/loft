@@ -205,7 +205,13 @@ struct MainWindow: View {
             switch nav.section {
             case .agents: AgentsSection()
             case .settings:
-                ScrollView { AddressForm(isOnboarding: false).frame(maxWidth: 560).padding(24) }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        AddressForm(isOnboarding: false)
+                        AppleIntelligenceSection()
+                    }
+                    .frame(maxWidth: 560).padding(24)
+                }
                     .navigationTitle("Settings")
             default:
                 ContentUnavailableView(nav.section.title, systemImage: nav.section.symbol,
