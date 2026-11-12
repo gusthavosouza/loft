@@ -1,0 +1,7 @@
+Daily sweep 6
+  scratch/414 3002368
+  scratch/412 3002368
+  notes/qa/Run1.xcresult 40001536
+  notes/maestro-2026-11-09 5001216
+  notes/trace.txt 11001856
+  notes/crash.ips 200704
