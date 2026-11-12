@@ -14,6 +14,10 @@ public struct RepoSummary: Codable, Hashable, Identifiable {
     /// Commits per day, oldest first, the last 26 weeks.
     public var daily: [Int]
     public var error: String?
+    /// The repo detail's numbers: branches, files per language and commits per author, biggest first.
+    public var branches: Int?
+    public var languages: [Share]?
+    public var contributors: [Share]?
 
     public var id: String { name }
     /// Has local changes (staged, modified or untracked).
@@ -32,6 +36,7 @@ public struct RepoGithub: Codable, Hashable {
         public var url: String
         public var draft: Bool
         public var updatedAt: Date
+        public var labels: [String]?
         public var id: String { url }
     }
 
@@ -40,6 +45,9 @@ public struct RepoGithub: Codable, Hashable {
     public var pulls: [Item]
     public var issues: [Item]
     public var error: String?
+    public var stars: Int?
+    public var forks: Int?
+    public var description: String?
 }
 
 /// `GET /api/agents/summary?totals=true` without the per-agent rows: runs and spend this period, the one before,
@@ -56,4 +64,37 @@ public struct AgentsTotals: Codable, Hashable {
 
     public var period: Period
     public var allTime: Spend
+}
+
+/// A `[name, count]` pair, as `/api/repos` sends languages and contributors.
+public struct Share: Codable, Hashable {
+    public var name: String
+    public var count: Int
+
+    public init(_ name: String, _ count: Int) { self.name = name; self.count = count }
+
+    public init(from decoder: Decoder) throws {
+        var c = try decoder.unkeyedContainer()
+        name = try c.decode(String.self)
+        count = try c.decode(Int.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.unkeyedContainer()
+        try c.encode(name)
+        try c.encode(count)
+    }
+}
+
+/// A repo's recent commit (`GET /api/repos/{name}/commits`); `timestamp` in seconds.
+public struct RepoCommit: Codable, Hashable, Identifiable {
+    public var hash: String
+    public var subject: String
+    public var author: String
+    public var timestamp: Int64
+    public var insertions: Int?
+    public var deletions: Int?
+
+    public var id: String { hash }
+    public var date: Date { Date(timeIntervalSince1970: TimeInterval(timestamp)) }
 }

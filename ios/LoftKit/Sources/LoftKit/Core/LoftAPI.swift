@@ -128,6 +128,17 @@ public protocol LoftAPI: Sendable {
     func githubBudget() async throws -> JSONValue
     /// Whether macOS lets the agents into the folders it guards (`POST /api/system/mac-access`).
     func macAccess() async throws -> JSONValue
+    /// A repo's recent commits, newest first.
+    func repoCommits(name: String) async throws -> [RepoCommit]
+    /// Settings › Push notifications: `GET /api/push` (where pushes go), `PUT /api/push` with what changed, Sign in, and
+    /// the phones registered (`GET /api/devices`).
+    func pushStatus() async throws -> JSONValue
+    func configurePush(_ changes: [String: JSONValue]) async throws -> JSONValue
+    func pushSignIn() async throws -> JSONValue
+    func pushDevices() async throws -> [JSONValue]
+    /// Settings › Herdr UI: `GET /api/herdr`, and Set up on this machine (`POST /api/herdr/setup`).
+    func herdrStatus() async throws -> JSONValue
+    func herdrSetup() async throws -> JSONValue
 }
 
 public struct LiveLoftAPI: LoftAPI {
@@ -465,6 +476,15 @@ public struct LiveLoftAPI: LoftAPI {
     public func restart() async throws { _ = try await send("POST", "/restart", body: [:]) }
     public func githubBudget() async throws -> JSONValue { try await get("/github/budget") }
     public func macAccess() async throws -> JSONValue { try decode(JSONValue.self, try await send("POST", "/system/mac-access", body: [:], timeout: 60)) }
+    public func repoCommits(name: String) async throws -> [RepoCommit] {
+        try await get("/repos/\(name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(["/"])) ?? name)/commits")
+    }
+    public func pushStatus() async throws -> JSONValue { try await get("/push") }
+    public func configurePush(_ changes: [String: JSONValue]) async throws -> JSONValue { try decode(JSONValue.self, try await send("PUT", "/push", body: .object(changes))) }
+    public func pushSignIn() async throws -> JSONValue { try decode(JSONValue.self, try await send("POST", "/push/signin", body: [:])) }
+    public func pushDevices() async throws -> [JSONValue] { try await get("/devices") }
+    public func herdrStatus() async throws -> JSONValue { try await get("/herdr") }
+    public func herdrSetup() async throws -> JSONValue { try decode(JSONValue.self, try await send("POST", "/herdr/setup", body: [:], timeout: 300)) }
 
     public func eventLines() async throws -> AsyncThrowingStream<String, Error> {
         var req = URLRequest(url: url("/events"))
@@ -575,4 +595,11 @@ extension LoftAPI {
     public func restart() async throws { throw APIError.unsupported("Restart") }
     public func githubBudget() async throws -> JSONValue { throw APIError.unsupported("GitHub API") }
     public func macAccess() async throws -> JSONValue { throw APIError.unsupported("Mac access") }
+    public func repoCommits(name: String) async throws -> [RepoCommit] { throw APIError.unsupported("Repos") }
+    public func pushStatus() async throws -> JSONValue { throw APIError.unsupported("Push") }
+    public func configurePush(_ changes: [String: JSONValue]) async throws -> JSONValue { throw APIError.unsupported("Push") }
+    public func pushSignIn() async throws -> JSONValue { throw APIError.unsupported("Push") }
+    public func pushDevices() async throws -> [JSONValue] { throw APIError.unsupported("Push") }
+    public func herdrStatus() async throws -> JSONValue { throw APIError.unsupported("Herdr UI") }
+    public func herdrSetup() async throws -> JSONValue { throw APIError.unsupported("Herdr UI") }
 }

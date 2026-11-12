@@ -1077,6 +1077,15 @@ public final class LoftStore {
     public func restart() async throws { try await requireWrite().restart() }
     public func githubBudget() async throws -> JSONValue { try await requireWrite().githubBudget() }
     public func macAccess() async throws -> JSONValue { try await requireWrite().macAccess() }
+    public func repoCommits(name: String) async throws -> [RepoCommit] { try await requireWrite().repoCommits(name: name) }
+    public func pushStatus() async throws -> JSONValue { try await requireWrite().pushStatus() }
+    public func configurePush(_ changes: [String: JSONValue]) async throws -> JSONValue { try await requireWrite().configurePush(changes) }
+    public func pushSignIn() async throws -> JSONValue { try await requireWrite().pushSignIn() }
+    public func pushDevices() async throws -> [JSONValue] { try await requireWrite().pushDevices() }
+    public func testPush(token: String) async throws { try await requireWrite().testPush(token: token) }
+    public func removePushDevice(token: String) async throws { try await requireWrite().unregisterDevice(token: token) }
+    public func herdrStatus() async throws -> JSONValue { try await requireWrite().herdrStatus() }
+    public func herdrSetup() async throws -> JSONValue { try await requireWrite().herdrSetup() }
 
     /// Saves the two GitHub issues settings, leaving the server's other settings as they are.
     public func saveIssueSettings(_ s: IssueSettings) async throws {

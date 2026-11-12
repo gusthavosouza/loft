@@ -818,8 +818,67 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
     }
 
     public func registerDevice(_ d: DeviceRegistration) async throws { try check() }
-    public func unregisterDevice(token: String) async throws { try check() }
+    public func unregisterDevice(token: String) async throws {
+        try check()
+        locked { phones.removeAll { $0["token"]?.stringValue == token } }
+    }
     public func testPush(token: String) async throws { try check() }
+
+    /// Push through the relay with a relay key, and one phone registered.
+    private var push: [String: JSONValue] = ["path": "relay", "relay_key": true, "relay_refused": false, "signing_in": false, "signin_code": nil,
+                                             "relay_url": "https://relay.fixture.invalid", "relay_address": "", "signin": true, "configured": false,
+                                             "key_present": false, "key_id": "", "team_id": "", "bundle_id": "is.loft.app", "devices": .number(1)]
+    private var phones: [JSONValue] = [["token": "ab12", "platform": "ios", "environment": "production", "bundle_id": "is.loft.app", "name": "iPhone",
+                                        "kinds": .array(["question", "permission"]), "quiet_hours": nil,
+                                        "created_at": "2026-11-01T09:00:00Z", "last_seen_at": .string(ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -7200)))]]
+
+    public func pushStatus() async throws -> JSONValue {
+        try check()
+        return locked { var p = push; p["devices"] = .number(Double(phones.count)); return .object(p) }
+    }
+
+    public func configurePush(_ changes: [String: JSONValue]) async throws -> JSONValue {
+        try check()
+        locked {
+            if changes["remove_relay_key"]?.boolValue == true { push["relay_key"] = false }
+            if changes["relay_key"]?.stringValue?.isEmpty == false { push["relay_key"] = true }
+            if let a = changes["relay_url"]?.stringValue { push["relay_address"] = .string(a) }
+            for k in ["key_id", "team_id"] { if let v = changes[k] { push[k] = v } }
+            if changes["key_p8"]?.stringValue != nil { push["key_present"] = true }
+            if changes["remove_key"]?.boolValue == true { push["key_present"] = false }
+            let own = push["key_present"]?.boolValue == true && !(push["key_id"]?.stringValue ?? "").isEmpty
+            push["configured"] = .bool(own)
+            push["path"] = own ? "own_key" : push["relay_key"]?.boolValue == true ? "relay" : "none"
+        }
+        return try await pushStatus()
+    }
+
+    public func pushSignIn() async throws -> JSONValue {
+        try check()
+        locked { push["signing_in"] = true; push["signin_code"] = "K7Q2" }
+        return ["url": "https://relay.fixture.invalid/connect?code=fixture", "confirm": "K7Q2"]
+    }
+
+    public func pushDevices() async throws -> [JSONValue] {
+        try check()
+        return locked { phones }
+    }
+
+    /// Herdr installed here and not set up yet; Set up links it.
+    private var herdrLinked = false
+    public func herdrStatus() async throws -> JSONValue {
+        try check()
+        return locked {
+            ["herdr": ["path": "/opt/homebrew/bin/herdr", "version": "herdr 0.4.1"], "linked": herdrLinked ? ["root": "/Users/me/.herdr/plugins/loft", "enabled": true] : nil,
+             "built": .bool(herdrLinked), "platform": "macos-aarch64", "url": "http://localhost:7420"]
+        }
+    }
+
+    public func herdrSetup() async throws -> JSONValue {
+        try check()
+        locked { herdrLinked = true }
+        return ["ok": true, "done": .array(["Built the Herdr UI client", "Linked Loft's plugin into Herdr"]), "message": "Open Herdr: your agents are in the Loft workspace."]
+    }
     public func updateDevice(token: String, _ fields: [String: JSONValue]) async throws { try check() }
 
     public func resetSession(agentId: String) async throws {
@@ -998,11 +1057,13 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
         try check()
         func daily(_ k: Int) -> [Int] { (0..<182).map { ($0 * k) % 7 == 0 ? k % 4 + 1 : ($0 % 5 == 0 ? 1 : 0) } }
         return [RepoSummary(name: "loft", path: "/Users/me/dev/loft", branch: "main", ahead: 0, behind: 0, staged: 0, modified: 2, untracked: 1,
-                            totalCommits: 1840, daily: daily(3), error: nil),
+                            totalCommits: 1840, daily: daily(3), error: nil, branches: 14,
+                            languages: [Share("Rust", 61), Share("Swift", 212), Share("TypeScript", 140)],
+                            contributors: [Share("Loft Dev", 1210), Share("Loft mobile dev", 630)]),
                 RepoSummary(name: "api", path: "/Users/me/dev/api", branch: "main", ahead: 1, behind: 0, staged: 0, modified: 0, untracked: 0,
-                            totalCommits: 5210, daily: daily(2), error: nil),
+                            totalCommits: 5210, daily: daily(2), error: nil, branches: 3, languages: [Share("Kotlin", 402)], contributors: [Share("API Agent", 5210)]),
                 RepoSummary(name: "site", path: "/Users/me/dev/site", branch: "main", ahead: 0, behind: 0, staged: 0, modified: 0, untracked: 0,
-                            totalCommits: 96, daily: daily(5), error: nil)]
+                            totalCommits: 96, daily: daily(5), error: nil, branches: 1, languages: [Share("HTML", 12)], contributors: [Share("Site Agent", 96)])]
     }
 
     public func repoGithub() async throws -> [String: RepoGithub] {
@@ -1011,8 +1072,17 @@ public final class FixtureAPI: LoftAPI, @unchecked Sendable {
             .init(number: n, title: title, author: "loft-dev", url: "https://github.com/Octo/loft/pull/\(n)", draft: draft, updatedAt: Date(timeIntervalSinceNow: -hoursAgo * 3600))
         }
         return ["loft": RepoGithub(slug: "Octo/loft", pulls: [item(383, "Loft for Mac", 1), item(401, "Mirror: keep the link", 26, draft: true)],
-                                   issues: [item(387, "Mac app: Overview, Needs you and Settings", 3)], error: nil),
-                "api": RepoGithub(slug: "acme/api", pulls: [item(1765, "Scope menu discounts to the restaurant", 5)], issues: [], error: nil)]
+                                   issues: [item(387, "Mac app: Overview, Needs you and Settings", 3)], error: nil,
+                                   stars: 42, forks: 3, description: "Your local developer command center."),
+                "api": RepoGithub(slug: "acme/api", pulls: [item(1765, "Scope menu discounts to the restaurant", 5)], issues: [], error: nil, stars: 0, forks: 0),
+                "site": RepoGithub(slug: "acme/site", pulls: [], issues: [], error: "GitHub 404: Not Found")]
+    }
+
+    public func repoCommits(name: String) async throws -> [RepoCommit] {
+        try check()
+        let now = Int64(Date().timeIntervalSince1970)
+        return [RepoCommit(hash: "7cbf9b19aa", subject: "Merge main into the spec branch", author: "Loft mobile dev", timestamp: now - 3600, insertions: 120, deletions: 48),
+                RepoCommit(hash: "a8dc004f11", subject: "Mac app: Overview in Loft's palette", author: "Loft Dev", timestamp: now - 26 * 3600, insertions: 64, deletions: 20)]
     }
 
     public func agentsTotals() async throws -> AgentsTotals {

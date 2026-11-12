@@ -165,6 +165,29 @@ final class LoftMacUITests: XCTestCase {
         shot("Overview")
     }
 
+    /// Overview has the web's Activity and Most active panels and the GitHub token note; a repo opens its detail with
+    /// languages, contributors and recent commits.
+    func testOverviewActivityAndRepoDetail() {
+        launch(["-ui-testing"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("1", modifierFlags: .command)
+        XCTAssertTrue(app.descendants(matching: .any)["overviewActivity"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["MOST ACTIVE · 30D"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", "peak ")).firstMatch.exists)
+        shot("Overview activity")
+        let loft = app.descendants(matching: .any)["mostActive-loft"]
+        XCTAssertTrue(loft.waitForExistence(timeout: 5))
+        loft.click()
+        XCTAssertTrue(app.staticTexts["Your local developer command center."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Merge main into the spec branch"].waitForExistence(timeout: 5), "Recent commits load")
+        XCTAssertTrue(app.staticTexts["Loft mobile dev"].exists, "Contributors")
+        XCTAssertTrue(app.staticTexts["Swift"].exists, "Languages")
+        shot("Repo detail")
+        app.typeKey(.escape, modifierFlags: [])
+        // "site" can't be read on GitHub and the fixture has a saved token, so no token note.
+        XCTAssertFalse(app.descendants(matching: .any)["githubLimited"].exists)
+    }
+
     /// ⌘4: a question's Reply opens a sheet; Send answers it and the item goes.
     func testNeedsYouReply() {
         // The on-device model's summaries would move the row under the click; off, as on a Mac without it.
@@ -234,6 +257,37 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 10))
         XCTAssertEqual(toggle.value as? Int, 0, "Saved off, and loaded again off")
         shot("Settings")
+    }
+
+    /// Settings has the web's Herdr UI and Push notifications: Set up links Herdr here, a phone gets a test push and
+    /// can be removed.
+    func testSettingsHerdrAndPush() {
+        launch(["-ui-testing"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("5", modifierFlags: .command)
+        let open = app.buttons["herdrOpen"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        open.click()
+        let setUp = app.buttons["herdrSetUp"]
+        XCTAssertTrue(setUp.waitForExistence(timeout: 5))
+        setUp.click()
+        XCTAssertTrue(app.staticTexts["herdrResult"].waitForExistence(timeout: 10))
+        XCTAssertTrue((app.staticTexts["herdrHere"].value as? String ?? "").contains("shows Loft's agents"))
+        XCTAssertEqual(app.buttons["herdrSetUp"].label, "Set up again")
+        shot("Settings Herdr UI")
+
+        let test = app.buttons["pushTest-iPhone"]
+        XCTAssertTrue(test.waitForExistence(timeout: 10))
+        test.click()
+        let msg = app.staticTexts["pushMessage"]
+        XCTAssertTrue(msg.waitForExistence(timeout: 5))
+        XCTAssertTrue((msg.value as? String ?? msg.label).hasPrefix("Sent to iPhone"))
+        XCTAssertEqual(app.staticTexts["pushPath"].value as? String, "Using the Loft relay")
+        shot("Settings Push notifications")
+        app.buttons["Remove this phone"].click()
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: test)
+        waitForExpectations(timeout: 10)
     }
 
     /// The Issues board: the Issues column first, All / Issues / Specs, a spec's page with its tickets, and Start

@@ -2,7 +2,7 @@ import LoftKit
 import SwiftUI
 
 /// Settings: the web's sections, saved together with only what changed, plus this Mac's Loft address. Backups' Back
-/// up now, Clean and Mac access act at once, as on the web.
+/// up now, Clean, Herdr UI, Push notifications and Mac access act at once, as on the web.
 struct SettingsSection: View {
     @Environment(LoftStore.self) private var store
     /// `GET /api/settings`'s `settings` as saved, and as edited here.
@@ -58,6 +58,8 @@ struct SettingsSection: View {
                 Section("Keyboard shortcuts") {
                     ForEach(Self.shortcuts, id: \.0) { s in LabeledContent(s.1, value: s.0) }
                 }
+                HerdrSettings()
+                PushSettings()
                 MacAccessSettings()
             } else if let error {
                 Text(error).foregroundStyle(Theme.failureInk)
