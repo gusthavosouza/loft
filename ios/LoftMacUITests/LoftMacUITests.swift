@@ -188,6 +188,18 @@ final class LoftMacUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["githubLimited"].exists)
     }
 
+    /// Needs you behind another app: the window is inactive and the accent buttons still read (the screenshot shows it).
+    func testNeedsYouInactiveWindow() {
+        launch(["-ui-testing", "-no-ai"])
+        XCTAssertTrue(app.outlines["agentsList"].waitForExistence(timeout: 10))
+        app.typeKey("4", modifierFlags: .command)
+        XCTAssertTrue(app.descendants(matching: .any)["needsYou-question:1"].waitForExistence(timeout: 10))
+        XCUIApplication(bundleIdentifier: "com.apple.finder").activate()
+        sleep(1)
+        XCTAssertTrue(app.buttons["Allow once"].firstMatch.exists)
+        shot("Needs you inactive")
+    }
+
     /// ⌘4: a question's Reply opens a sheet; Send answers it and the item goes.
     func testNeedsYouReply() {
         // The on-device model's summaries would move the row under the click; off, as on a Mac without it.

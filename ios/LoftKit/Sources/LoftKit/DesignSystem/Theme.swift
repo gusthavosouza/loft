@@ -77,12 +77,27 @@ extension ConnectionState {
     }
 }
 
-/// The filled accent button (`.borderedProminent`) with a label that stays readable on the lime.
+/// The filled accent button (`.borderedProminent`) with a label that stays readable on the lime. On the Mac an inactive
+/// window greys the fill, so the dark label is only forced while the window is active.
 public struct AccentButtonStyle: PrimitiveButtonStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
-        Button(configuration).buttonStyle(.borderedProminent).foregroundStyle(Theme.onAccent)
+        AccentButton(configuration: configuration)
+    }
+}
+
+private struct AccentButton: View {
+    let configuration: PrimitiveButtonStyleConfiguration
+    #if os(macOS)
+    @Environment(\.controlActiveState) private var active
+    private var onLime: Bool { active == .key || active == .active }
+    #else
+    private let onLime = true
+    #endif
+
+    var body: some View {
+        Button(configuration).buttonStyle(.borderedProminent).foregroundStyle(onLime ? AnyShapeStyle(Theme.onAccent) : AnyShapeStyle(.primary))
     }
 }
 
