@@ -102,6 +102,7 @@ fn api_routes() -> Router<AppState> {
         .route("/deliveries/summary", get(delivery::summary_route))
         .route("/deliveries/merge", post(delivery::merge_route))
         .route("/deliveries/resume", post(delivery::resume_route))
+        .route("/deliveries/reopen", post(delivery::reopen_route))
         .route("/agents/{id}/uploads", post(uploads::upload))
         .route("/agents/{id}/uploads/{file}", get(uploads::get))
         .route("/agents/{id}/run", post(api::run_now))
@@ -133,6 +134,7 @@ fn api_routes() -> Router<AppState> {
         .nest("/tasks", tasks::routes())
         .route("/activity", get(tasks::activity))
         .route("/needs-you", get(needs_you::list))
+        .route("/needs-you/seen", post(needs_you::mark_seen))
         .route("/needs-you/{id}/dismiss", post(needs_you::dismiss_item))
         .route("/voice/clean", post(voice::clean))
         .route("/voice/brief", post(voice::brief))
@@ -156,15 +158,16 @@ fn api_routes() -> Router<AppState> {
         // GitHub requests a person's page or click makes count as `user` (a poller's have their own source).
         .layer(axum::middleware::from_fn(|req, next: axum::middleware::Next| github::as_source("user", next.run(req))))
         .layer(axum::middleware::from_fn(guard::same_origin_writes))
+        .layer(axum::middleware::from_fn(guard::local_host))
 }
 
 /// The whole server. `dist` is the built frontend, served when present (production mode).
 fn app(state: &AppState, dist: &std::path::Path) -> Router {
     Router::new()
         .nest("/api", api_routes())
-        .route("/mcp/{agent_id}", post(mcp::handle))
+        .route("/mcp/{agent_id}", post(mcp::handle).layer(axum::middleware::from_fn(guard::local_host)))
         // Agents' `kill`, `pkill` and `killall` (processes.rs). JSON only, so a web page can't send one.
-        .route("/kill/{agent_id}", post(processes::handle))
+        .route("/kill/{agent_id}", post(processes::handle).layer(axum::middleware::from_fn(guard::local_host)))
         // No CORS layer: every client is same-origin (the built frontend, the Vite proxy, `tailscale serve`)
         // or not a browser (the iOS app, agents' MCP calls). A permissive policy let any web page the user
         // visits read and drive the API from their browser.
@@ -219,6 +222,7 @@ async fn serve() -> anyhow::Result<()> {
         mirror: Arc::new(Default::default()),
         listings: Arc::new(Default::default()),
         xcode: Arc::new(Default::default()),
+        needs_you: Arc::new(Default::default()),
     };
     setup::ensure_loft(&state);
     {
@@ -243,6 +247,7 @@ async fn serve() -> anyhow::Result<()> {
     tokio::spawn(processes::pruner(state.cfg.storage_dir.clone()));
     tokio::spawn(mac_access::watcher(state.clone()));
     tokio::spawn(mirror::poller(state.clone()));
+    tokio::spawn(delivery::ci_poller(state.clone()));
     tokio::spawn(backup::scheduler(state.clone()));
     tokio::spawn(sweep::scheduler(state.clone()));
     tokio::spawn(simulator::tidier(state.clone()));
@@ -278,6 +283,40 @@ fn compression() -> tower_http::compression::CompressionLayer<impl tower_http::c
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_api_and_mcp_answer_only_to_this_macs_host_and_the_herdr_build_to_same_site_reads() {
+        let st = tasks::tests::state();
+        let dist = crate::testdir::for_this_test("dist-host");
+        std::fs::create_dir_all(&dist).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = app(&st, &dist);
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let http = reqwest::Client::new();
+        let status = |req: reqwest::RequestBuilder| async move { req.send().await.unwrap().status().as_u16() };
+        // The cookie of the removed pairing is told to go.
+        let r = http.get(format!("{base}/api/info")).header("cookie", "__Host-loft=old").send().await.unwrap();
+        assert!(r.headers().get("set-cookie").unwrap().to_str().unwrap().starts_with("__Host-loft=; Max-Age=0"));
+        assert!(http.get(format!("{base}/api/info")).send().await.unwrap().headers().get("set-cookie").is_none());
+        // A page rebound to this Mac still sends its own name as Host.
+        assert_eq!(status(http.get(format!("{base}/api/info"))).await, 200, "the address as typed");
+        assert_eq!(status(http.get(format!("{base}/api/info")).header("host", "localhost:7420")).await, 200);
+        assert_eq!(status(http.get(format!("{base}/api/info")).header("host", "evil.example:7420")).await, 403);
+        assert_eq!(status(http.get(format!("{base}/api/info")).header("host", "127.0.0.1.evil.example")).await, 403);
+        assert_eq!(status(http.post(format!("{base}/mcp/nobody")).header("host", "evil.example").body("{}")).await, 403);
+        assert_ne!(status(http.post(format!("{base}/mcp/nobody")).body("{}")).await, 403);
+        // A LAN address can't be rebound, so it is served; `/kill` is checked like the rest.
+        assert_eq!(status(http.get(format!("{base}/api/info")).header("host", "192.168.1.20:7420")).await, 200);
+        let kill = format!("{base}/kill/nobody");
+        assert_eq!(status(http.post(&kill).header("host", "evil.example").json(&json!({}))).await, 403);
+        assert_ne!(status(http.post(&kill).json(&json!({}))).await, 403);
+        // The herdr build is for same-site reads only; the platform here is wrong so no build starts.
+        let bin = format!("{base}/api/herdr/bin/nowhere");
+        assert_eq!(status(http.get(&bin).header("sec-fetch-site", "cross-site")).await, 403);
+        assert_eq!(status(http.get(&bin).header("sec-fetch-site", "same-origin")).await, 404);
+        assert_eq!(status(http.get(&bin)).await, 404);
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn text_is_compressed_when_asked_and_images_video_small_bodies_and_events_are_not() {

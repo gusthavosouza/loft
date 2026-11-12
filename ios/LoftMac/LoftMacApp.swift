@@ -11,6 +11,7 @@ struct LoftMacApp: App {
 
     init() {
         Prefs.registerDefaults()
+        OldPairing.clear()
         let store = LoftStore(api: Self.makeAPI())
         // Live from launch: the menu bar item needs it with the window closed.
         store.activate()

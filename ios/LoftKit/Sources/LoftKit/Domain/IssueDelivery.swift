@@ -24,7 +24,7 @@ public struct IssueDelivery: Codable, Hashable {
 
     /// planned | running | final_review | final_fixes | needs_human | stalled | paused | ready | settled | merged
     public var state: String
-    /// Why it stalled: run_failed, no_call or restart; nil unless stalled.
+    /// Why it stalled: run_failed, no_call, restart or ci_missing; nil unless stalled.
     public var stallReason: String? = nil
     /// The server's state line; nil before it started, and from a backend older than `state_line`.
     public var stateLine: StateLine? = nil
@@ -32,6 +32,8 @@ public struct IssueDelivery: Codable, Hashable {
     public var canPause: Bool? = nil
     /// Resume applies: it's stalled or paused, or a ticket or its final review waits for the user.
     public var canResume: Bool? = nil
+    /// Reopen delivery applies: it's done, and tickets published into the spec since are open.
+    public var canReopen: Bool? = nil
     /// A ticket, or the final review, waits for the user after too many change rounds.
     public var needsHuman: Bool? = nil
     public var started: Bool
@@ -80,6 +82,7 @@ public struct IssueDelivery: Codable, Hashable {
     /// final review waits for the user: each only when the server says it applies, and only once it started.
     public var showsPause: Bool { started && canPause == true }
     public var showsResume: Bool { started && canResume == true }
+    public var showsReopen: Bool { started && canReopen == true }
 
     public var ticketsDone: Int { (tickets ?? []).filter { $0.state == "closed" }.count }
     public var skippedTickets: [Ticket] { (tickets ?? []).filter { $0.state == "elsewhere" } }
@@ -105,7 +108,7 @@ public struct IssueDelivery: Codable, Hashable {
 }
 
 /// A Delivery card button, as its endpoint names it (`POST /api/issues/{id}/<action>-delivery`).
-public enum IssueDeliveryAction: String { case start, pause, resume }
+public enum IssueDeliveryAction: String { case start, pause, resume, reopen }
 
 /// A Delivery card button's answer: the Delivery as the card shows it now, and what the button did.
 public struct IssueDeliveryReply: Decodable {

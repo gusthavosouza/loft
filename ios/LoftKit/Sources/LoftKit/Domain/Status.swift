@@ -118,6 +118,8 @@ public enum TaskState: String, CaseIterable, Hashable, Identifiable {
     public var needsAttention: Bool { self == .failed || self == .blocked || self == .waitingApproval }
     /// Can be handed to an agent (again).
     public var canExecute: Bool { self == .inbox || self == .ready || self == .failed || self == .unknown }
+    /// Stopped with a reason: Send to… hands it to an agent again (another one, or the same), with the reason.
+    public var canSendAgain: Bool { self == .blocked || self == .failed }
 }
 
 public enum TaskPriority: String, CaseIterable, Identifiable {

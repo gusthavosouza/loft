@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import os
 
 public enum Log {
@@ -185,5 +186,19 @@ extension Date {
         if s < 60 { return "\(s)s" }
         if s < 3600 { return "\(s / 60)m" }
         return String(format: "%dh %02dm", s / 3600, (s % 3600) / 60)
+    }
+}
+
+/// The pairing token an earlier version kept in the Keychain. Pairing is gone, so it is deleted at launch.
+public enum OldPairing {
+    public static let service = "loft.client-token"
+
+    public static func clear() {
+        var q: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service]
+        #if os(macOS)
+        // The Mac app kept it in the data protection Keychain.
+        q[kSecUseDataProtectionKeychain] = true
+        #endif
+        SecItemDelete(q as CFDictionary)
     }
 }
