@@ -2,7 +2,7 @@ import LoftKit
 import SwiftUI
 
 /// Settings › Apple Intelligence on the Mac (spec #382): the on-device model's status and the iPhone's switches for
-/// the features this app has. Dictation cleanup (#392, voice) gets its switch when that lands. A switch is off and disabled while the model can't run; the setting is kept.
+/// the features this app has. A switch is off and disabled while the model can't run; the setting is kept.
 struct AppleIntelligenceSection: View {
     @AppStorage(Prefs.aiRoute) private var aiRoute = true
     @AppStorage(Prefs.aiChatReplies) private var aiChatReplies = true
