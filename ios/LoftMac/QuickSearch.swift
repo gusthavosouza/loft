@@ -160,6 +160,8 @@ final class QuickSearchController {
         applyShortcut()
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyShortcut() }
+            // Again once every observer has run: the other shortcut may only now have let go of these keys.
+            DispatchQueue.main.async { self?.applyShortcut() }
         }
         #if DEBUG
         // Needs no window: a directly launched app may not open one.
@@ -172,7 +174,8 @@ final class QuickSearchController {
 
     private func applyShortcut() {
         let s = MacShortcut(stored: UserDefaults.standard.string(forKey: Prefs.quickSearchShortcut))
-        guard s != shortcut else { return }
+        // Tries again when it failed, as the clash may be gone.
+        guard s != shortcut || HotKeyFailures.shared.byID[GlobalHotKey.quickSearch] != nil else { return }
         shortcut = s
         hotKey.set(s)
     }
