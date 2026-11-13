@@ -65,6 +65,9 @@ public final class VoiceSession {
         get { UserDefaults.standard.bool(forKey: Prefs.voiceHandsFree) }
         set { UserDefaults.standard.set(newValue, forKey: Prefs.voiceHandsFree) }
     }
+    /// In hands-free mode, listen again after the next question is read. The Mac's voice panel turns it off: it hides
+    /// after a send, and nothing may listen with nothing on screen to stop it.
+    public var listensAgain = true
     public var readReplies: Bool {
         get { UserDefaults.standard.bool(forKey: Prefs.voiceReadReplies) }
         set { UserDefaults.standard.set(newValue, forKey: Prefs.voiceReadReplies) }
@@ -209,6 +212,8 @@ public final class VoiceSession {
         let r = recognizer
         recognizer = nil
         await r?.flush()
+        // Discarded or closed meanwhile (Esc while tidying up): nothing more happens.
+        guard phase == .cleaning else { return }
         live = ""
         // A command at the very end of what was said isn't part of the message.
         let reading = VoiceSend.command(in: committed, sincePause: pauseBase)
@@ -219,6 +224,11 @@ public final class VoiceSession {
             return
         }
         await clean()
+        guard phase == .cleaning else {
+            cleaned = nil
+            cleanupNote = nil
+            return
+        }
         phase = .review
         switch reason {
         case .send where store.canWrite:
@@ -625,7 +635,7 @@ public final class VoiceSession {
             phase = .replied
             return
         }
-        if handsFree {
+        if handsFree, listensAgain {
             phase = .idle
             await start(agentId: agentId)
         } else {

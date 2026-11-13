@@ -94,6 +94,7 @@ final class VoicePanelController {
     func listen() {
         // One microphone: whatever the session was doing (a Talk, an old reply being read) stops.
         if voice.phase != .idle { voice.discard() }
+        voice.listensAgain = false
         listened = false
         suggested = nil
         let to = VoicePanel.recipient(openChat: nav.section == .agents ? nav.agentId : nil,

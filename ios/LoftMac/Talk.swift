@@ -50,7 +50,11 @@ struct TalkSheet: View {
         }
         .padding(20)
         .frame(width: 520, height: 400)
-        .task { await voice.start(agentId: agentId) }
+        .task {
+            // The voice panel turns this off for its own sends.
+            voice.listensAgain = true
+            await voice.start(agentId: agentId)
+        }
         .onChange(of: voice.phase) { _, p in
             if p == .listening { listened = true }
             let id = current
