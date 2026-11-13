@@ -78,6 +78,10 @@ final class DeliveryWidgetTests: XCTestCase {
         var waiting = delivery(1, "running", tickets: [ticket(2, "needs_human")])
         waiting.waitingOnYou = [2]
         XCTAssertEqual(status(waiting).status, .needsYou)
+        XCTAssertEqual(status(waiting).waitingOnYou, "#2 Ticket 2", "names the ticket to open")
+        XCTAssertEqual(status(waiting).progress, "0 of 1 ticket closed")
+        XCTAssertEqual(done.progress, "1 of 1 ticket closed")
+        XCTAssertEqual(status(delivery(1, "running", tickets: [ticket(2, "closed"), ticket(3, "open")])).progress, "1 of 2 tickets closed")
         XCTAssertEqual(status(delivery(1, "running")).title, "#1", "without its issue, the spec's number")
         XCTAssertEqual(status(delivery(1, "running")).link, .agents)
     }

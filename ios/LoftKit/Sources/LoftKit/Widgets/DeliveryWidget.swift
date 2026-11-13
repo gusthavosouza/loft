@@ -160,7 +160,7 @@ public struct DeliveryWidgetView: View {
                     }
             }
             .frame(height: 6)
-            Text("\(snapshot.done) of \(snapshot.total) tickets closed").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            Text(snapshot.progress).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
             detail.font(.caption).lineLimit(1)
             HStack(spacing: 12) {
                 verdict("Review", snapshot.review)
@@ -179,7 +179,9 @@ public struct DeliveryWidgetView: View {
         case .done: Text("Every ticket closed and reviewed: ready to merge.").foregroundStyle(.secondary)
         case .merged: Text("The spec PR is merged.").foregroundStyle(.secondary)
         default:
-            if let ticket = snapshot.ticket {
+            if snapshot.status == .needsYou, let waiting = snapshot.waitingOnYou {
+                Text("\(Text(waiting).fontWeight(.semibold)) waits for you").foregroundStyle(color)
+            } else if let ticket = snapshot.ticket {
                 Text("\(Text(ticket).fontWeight(.semibold))\(snapshot.dev.map { " · \($0)" } ?? "")")
             } else {
                 Text(snapshot.status == .needsYou ? "A ticket waits for you." : "Waiting for the next ticket.").foregroundStyle(.secondary)

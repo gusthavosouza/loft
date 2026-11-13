@@ -63,6 +63,11 @@ public struct DeliveryWidgetSnapshot: Equatable {
     /// "#465 One-agent widget" and the Dev building it; nil when no ticket is being built.
     public var ticket: String?
     public var dev: String?
+    /// "#464 Settings screen": the ticket waiting for the user, when one is.
+    public var waitingOnYou: String?
+
+    /// "2 of 4 tickets closed", "0 of 1 ticket closed".
+    public var progress: String { "\(done) of \(total) ticket\(total == 1 ? "" : "s") closed" }
     /// The final Code Review; QA and Security are the ticket in review's (every ticket's once it's done).
     public var review = Verdict.pending
     public var qa = Verdict.pending
@@ -97,6 +102,7 @@ public struct DeliveryWidgetSnapshot: Equatable {
                 ticket = "#\(c.number) \(c.title)"
                 dev = d.agentName
             }
+            waitingOnYou = (d.waitingOnYou ?? []).first.map { n in "#\(n)\(counted.first { $0.number == n }.map { " \($0.title)" } ?? "")" }
         }
         review = switch d.state {
         case "ready", "settled", "merged": .passed

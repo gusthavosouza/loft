@@ -20,6 +20,7 @@ final class DeliveryWidgetRenderTests: XCTestCase {
                                           t(466, "started", agent: "Loft Dev"), t(467, "open")])),
             ("changes", ready("running", [t(464, "closed"), t(465, "changes", agent: "Loft Dev", verdicts: [:])])),
             ("stalled", ready("stalled", [t(464, "closed"), t(465, "open")])),
+            ("needs-you", { var s = ready("running", [t(464, "needs_human"), t(465, "started", agent: "Loft Dev")]); s.waitingOnYou = "#464 Ticket 464"; s.status = .needsYou; return s }()),
             ("done", ready("ready", [t(464, "closed"), t(465, "closed")])),
             ("not-chosen", DeliveryWidgetSnapshot(phase: .notChosen)),
         ]
