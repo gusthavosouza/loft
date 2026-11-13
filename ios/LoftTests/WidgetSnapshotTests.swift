@@ -50,6 +50,31 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertTrue(WidgetSnapshot(needsYou: needs, agents: agents, permissions: [answered], weekSpend: nil).working.contains(busy.name))
     }
 
+    /// Without permissions (the default), every busy agent counts as working.
+    func testNoPermissionsLeavesEveryBusyAgentWorking() async throws {
+        let api = FixtureAPI()
+        let agents = try await api.agents()
+        let busy = agents.filter { AgentState(agent: $0, pendingApprovals: 0) == .working }.map(\.name)
+        let needs = try await api.needsYou()
+        XCTAssertEqual(Set(WidgetSnapshot(needsYou: needs, agents: agents, weekSpend: nil).working), Set(busy))
+    }
+
+    /// A failed permissions or spend read leaves them out; only Needs you or the agents failing means unreachable.
+    func testOnlyNeedsYouOrTheAgentsFailingMakesLoftUnreachable() async throws {
+        let api = FixtureAPI()
+        let down: () async throws -> [PermissionRequest] = { throw APIError.server(status: 404, message: "Not Found") }
+        let noSpend: () async throws -> Double = { throw APIError.unreachable("timeout") }
+        let s = await WidgetSnapshot.load(needsYou: api.needsYou, agents: api.agents, permissions: down, weekSpend: noSpend)
+        XCTAssertEqual(s.phase, .ready)
+        let count = try await api.needsYou().count
+        XCTAssertEqual(s.needsCount, count)
+        XCTAssertFalse(s.working.isEmpty, "no permissions: the busy agents still show as working")
+        XCTAssertNil(s.weekSpend)
+        let noAgents: () async throws -> [Agent] = { throw APIError.unreachable("timeout") }
+        let gone = await WidgetSnapshot.load(needsYou: api.needsYou, agents: noAgents, permissions: api.permissions, weekSpend: { 12.4 })
+        XCTAssertEqual(gone.phase, WidgetSnapshot.Phase.unreachable)
+    }
+
     func testUnknownSpendIsLeftOut() async throws {
         let s = try await fixture(spend: nil)
         XCTAssertNil(s.spendText)

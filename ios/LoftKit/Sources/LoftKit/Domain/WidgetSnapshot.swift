@@ -87,12 +87,19 @@ public struct WidgetSnapshot: Equatable {
     public static func load() async -> WidgetSnapshot {
         guard let server = SharedServer.address else { return .notConnected }
         let api = LiveLoftAPI(baseURL: server)
+        return await load(needsYou: api.needsYou, agents: api.agents, permissions: api.permissions, weekSpend: api.weekSpend)
+    }
+
+    /// Needs you and the agents are required; the permissions (who counts as working) and the spend are extras, so
+    /// either failing (an older Loft, a timeout) leaves them out instead of making Loft look unreachable.
+    static func load(needsYou: () async throws -> NeedsYouList, agents: () async throws -> [Agent],
+                     permissions: () async throws -> [PermissionRequest], weekSpend: () async throws -> Double) async -> WidgetSnapshot {
         do {
-            async let needs = api.needsYou()
-            async let agents = api.agents()
-            async let permissions = api.permissions()
-            async let spend = try? api.weekSpend()
-            return WidgetSnapshot(needsYou: try await needs, agents: try await agents, permissions: try await permissions, weekSpend: await spend)
+            async let needs = needsYou()
+            async let list = agents()
+            async let asks = try? permissions()
+            async let spend = try? weekSpend()
+            return WidgetSnapshot(needsYou: try await needs, agents: try await list, permissions: await asks ?? [], weekSpend: await spend)
         } catch {
             return .unreachable
         }
