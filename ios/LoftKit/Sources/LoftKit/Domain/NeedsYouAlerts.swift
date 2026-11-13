@@ -11,10 +11,13 @@ public struct NeedsYouAlerts {
 
     public init() {}
 
-    /// The items to notify about for this list; the first list only sets the baseline.
+    /// The items to notify about for this list; the first list only sets the baseline. Every call marks the list as
+    /// seen, also when the caller posts nothing because the window is in front: an item the user saw there doesn't
+    /// notify later when the app goes to the background. `seen` keeps only the current list, so an item that left the
+    /// list and comes back notifies again.
     public mutating func fresh(in list: NeedsYouList) -> [NeedsYouItem] {
         let new = list.items.filter { !seen.contains($0.id) }
-        seen.formUnion(list.items.map(\.id))
+        seen = Set(list.items.map(\.id))
         defer { primed = true }
         return primed ? new.filter { Self.types.contains($0.type) } : []
     }

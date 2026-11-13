@@ -31,11 +31,11 @@ final class NeedsYouAlertsTests: XCTestCase {
         XCTAssertTrue(a.fresh(in: list(item("s1", "stuck"), item("t1", "task_approval"), item("v1", "pr_review"))).isEmpty)
     }
 
-    func testAnItemThatReturnsAfterBeingDealtWithStillCountsAsSeen() {
+    func testAnItemThatLeavesAndComesBackNotifiesAgain() {
         var a = NeedsYouAlerts()
         _ = a.fresh(in: list(item("q1", "question")))
-        XCTAssertTrue(a.fresh(in: list()).isEmpty)
-        XCTAssertTrue(a.fresh(in: list(item("q1", "question"))).isEmpty)
+        XCTAssertTrue(a.fresh(in: list()).isEmpty, "it left the list")
+        XCTAssertEqual(a.fresh(in: list(item("q1", "question"))).map(\.id), ["q1"], "back on the list: a new notification")
     }
 
     func testTheBadgeIsTheCountAndNoneWhenEmptyOrNotLoaded() {
