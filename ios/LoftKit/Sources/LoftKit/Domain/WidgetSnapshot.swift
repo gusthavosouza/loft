@@ -103,8 +103,20 @@ public struct WidgetSnapshot: Equatable {
         // Bash: the command starts at its "$ " line and runs to the end of the text.
         let subject = lines.firstIndex { $0.hasPrefix("$ ") }.map { lines[$0...] } ?? lines[...]
         guard subject.count == 1, let line = subject.first?.trimmingCharacters(in: .whitespaces), !line.isEmpty,
-              line != "$", !line.hasPrefix("{"), !line.hasPrefix("["), !line.hasSuffix("…"), line.count <= subjectLimit else { return nil }
+              line != "$", !line.hasPrefix("{"), !line.hasPrefix("["), !line.hasSuffix("…"), line.count <= subjectLimit,
+              line.unicodeScalars.allSatisfy(isPlainText) else { return nil }
         return line
+    }
+
+    /// Printable text or a plain space: not a line break of any kind (`\r`, U+2028 …), a control or format character
+    /// (tabs, bidi overrides, zero-width characters) or another kind of space, any of which could hide part of the
+    /// command beside Approve.
+    private static func isPlainText(_ c: Unicode.Scalar) -> Bool {
+        if c == " " { return true }
+        switch c.properties.generalCategory {
+        case .control, .format, .lineSeparator, .paragraphSeparator, .spaceSeparator, .surrogate, .privateUse, .unassigned: return false
+        default: return !Character(c).isNewline
+        }
     }
 
     /// "$12.40", or nil when the spend is unknown.
