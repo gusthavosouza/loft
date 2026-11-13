@@ -120,8 +120,13 @@ public struct NeedsYouWidgetView: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title).font(.caption.weight(.semibold)).lineLimit(1)
-                Text([item.agentName, item.summary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                if item.approve != nil {
+                    // What Approve runs, on lines of its own: `subjectLimit` characters wrap to at most three (the title names the agent).
+                    Text(item.summary).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(3)
+                } else {
+                    Text([item.agentName, item.summary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .widgetLink(item.link)

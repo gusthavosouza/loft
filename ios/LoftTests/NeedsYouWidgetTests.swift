@@ -17,7 +17,8 @@ final class NeedsYouWidgetTests: XCTestCase {
         XCTAssertEqual(s.items.map(\.id), Array(list.items.prefix(WidgetSnapshot.itemLimit).map(\.id)))
         let permission = try XCTUnwrap(s.items.first { $0.id == "permission:p1" })
         XCTAssertEqual(permission.agentName, "Backend Agent")
-        XCTAssertEqual(permission.summary, "Push the fix", "a permission's summary is what it's for, not \"Waiting for your approval.\"")
+        XCTAssertEqual(permission.summary, "$ git push https://x:[redacted]@github.com/o/r",
+                       "a permission's summary is the command it runs, not the agent's description of it")
         let question = try XCTUnwrap(s.items.first { list.items.first(where: { $0.type == "question" })?.id == $0.id })
         XCTAssertEqual(question.summary, "Should I use B2 or S3?")
     }

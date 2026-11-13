@@ -44,9 +44,11 @@ public struct WidgetSnapshot: Equatable {
         /// 3 blocks an agent now … 0 to review.
         public let urgency: Int
         public let link: DeepLink
-        /// One short line: the item's reason, or for a permission (whose reason says only that it waits) what it's for.
+        /// One short line: the item's reason, or for a permission what will run (`permissionSubject`) when it has a short
+        /// one-line form.
         public var summary = ""
-        /// A permission's Allow once and Deny, sent as the server gave them (spec #462); nil on everything else.
+        /// A permission's Allow once and Deny, sent as the server gave them (spec #462); nil on everything else. Approve
+        /// only when the summary shows what will run whole; Deny on every permission.
         public var approve: NeedsYouAction?
         public var deny: NeedsYouAction?
     }
@@ -75,12 +77,12 @@ public struct WidgetSnapshot: Equatable {
         urgent = needsYou.urgent
         items = needsYou.items.prefix(Self.itemLimit).map {
             let agentId = $0.openAction?.target?.agentId ?? $0.agent?.id
-            let firstLine = $0.text.split(separator: "\n").first.map(String.init)
             let isPermission = $0.type == "permission"
+            let subject = isPermission ? Self.permissionSubject($0.text) : nil
             return Item(id: $0.id, title: $0.title, agentName: $0.agent?.name, urgency: $0.urgency,
                         link: agentId.map(DeepLink.agent) ?? .needsYou,
-                        summary: (isPermission ? firstLine : nil) ?? $0.reason,
-                        approve: isPermission ? $0.actions.first { $0.kind == "approve" && $0.isRequest } : nil,
+                        summary: subject ?? $0.reason,
+                        approve: subject == nil ? nil : $0.actions.first { $0.kind == "approve" && $0.isRequest },
                         deny: isPermission ? $0.actions.first { $0.kind == "deny" && $0.isRequest } : nil)
         }
         working = agents.filter { a in
@@ -88,6 +90,21 @@ public struct WidgetSnapshot: Equatable {
         }
             .map(\.name).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         self.weekSpend = weekSpend
+    }
+
+    /// The longest subject the widget approves: it wraps to at most three caption lines, so it always shows whole.
+    public static let subjectLimit = 60
+
+    /// What a permission will run, as the server's text says it (backend `permission_text`): the `$ command` line for
+    /// Bash (never the agent's own description above it), else the path or URL. Nil when the widget can't show it whole:
+    /// more than one line, cut by the server, longer than `subjectLimit`, or a tool with no one-line form (its JSON).
+    static func permissionSubject(_ text: String) -> String? {
+        let lines = text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+        // Bash: the command starts at its "$ " line and runs to the end of the text.
+        let subject = lines.firstIndex { $0.hasPrefix("$ ") }.map { lines[$0...] } ?? lines[...]
+        guard subject.count == 1, let line = subject.first?.trimmingCharacters(in: .whitespaces), !line.isEmpty,
+              line != "$", !line.hasPrefix("{"), !line.hasPrefix("["), !line.hasSuffix("…"), line.count <= subjectLimit else { return nil }
+        return line
     }
 
     /// "$12.40", or nil when the spend is unknown.
