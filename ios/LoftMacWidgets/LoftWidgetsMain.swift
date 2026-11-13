@@ -4,5 +4,8 @@ import WidgetKit
 
 @main
 struct LoftWidgetsMain: WidgetBundle {
-    var body: some Widget { LoftOverviewWidget() }
+    var body: some Widget {
+        LoftOverviewWidget()
+        NeedsYouWidget()
+    }
 }

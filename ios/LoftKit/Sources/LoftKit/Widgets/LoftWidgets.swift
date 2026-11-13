@@ -54,7 +54,11 @@ extension WidgetSnapshot {
         var s = WidgetSnapshot(phase: .ready)
         s.needsCount = 3
         s.urgent = 1
-        s.items = [Item(id: "1", title: "Approve the migration", agentName: "Dev", urgency: 3, link: .needsYou)]
+        let decide = { (d: String) in NeedsYouAction(kind: d == "deny" ? "deny" : "approve", label: d, method: "POST", path: "/api/permissions/1",
+                                                     body: .object(["decision": .string(d)])) }
+        s.items = [Item(id: "1", title: "Dev wants to use Bash", agentName: "Dev", urgency: 3, link: .needsYou, summary: "Run the migration",
+                        approve: decide("allow_once"), deny: decide("deny")),
+                   Item(id: "2", title: "QA asked you something", agentName: "QA", urgency: 2, link: .needsYou, summary: "Ship it on Friday?")]
         s.working = ["Dev", "QA"]
         s.weekSpend = 12.4
         return s

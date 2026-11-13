@@ -44,9 +44,16 @@ public struct WidgetSnapshot: Equatable {
         /// 3 blocks an agent now … 0 to review.
         public let urgency: Int
         public let link: DeepLink
+        /// One short line: the item's reason, or for a permission (whose reason says only that it waits) what it's for.
+        public var summary = ""
+        /// A permission's Allow once and Deny, sent as the server gave them (spec #462); nil on everything else.
+        public var approve: NeedsYouAction?
+        public var deny: NeedsYouAction?
     }
 
-    public static let itemLimit = 3
+    /// The Needs you widget's large size shows this many; the overview widget the first `overviewLimit`.
+    public static let itemLimit = 6
+    public static let overviewLimit = 3
 
     public var phase: Phase
     public var needsCount = 0
@@ -68,8 +75,13 @@ public struct WidgetSnapshot: Equatable {
         urgent = needsYou.urgent
         items = needsYou.items.prefix(Self.itemLimit).map {
             let agentId = $0.openAction?.target?.agentId ?? $0.agent?.id
+            let firstLine = $0.text.split(separator: "\n").first.map(String.init)
+            let isPermission = $0.type == "permission"
             return Item(id: $0.id, title: $0.title, agentName: $0.agent?.name, urgency: $0.urgency,
-                        link: agentId.map(DeepLink.agent) ?? .needsYou)
+                        link: agentId.map(DeepLink.agent) ?? .needsYou,
+                        summary: (isPermission ? firstLine : nil) ?? $0.reason,
+                        approve: isPermission ? $0.actions.first { $0.kind == "approve" && $0.isRequest } : nil,
+                        deny: isPermission ? $0.actions.first { $0.kind == "deny" && $0.isRequest } : nil)
         }
         working = agents.filter { a in
             AgentState(agent: a, pendingApprovals: permissions.filter { $0.isPending && $0.agentId == a.id }.count) == .working
