@@ -10,9 +10,9 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(WebTheme.line))
     }
 
-    /// `.eyebrow`: a small mono, upper-case label over a group.
-    func eyebrow() -> some View {
-        font(.system(size: 10.5, design: .monospaced)).textCase(.uppercase).tracking(1.4).foregroundStyle(WebTheme.fg3)
+    /// `.eyebrow`: a small mono, upper-case label over a group, `fg3` unless it carries a state.
+    func eyebrow(_ color: Color = WebTheme.fg3) -> some View {
+        font(.system(size: 10.5, design: .monospaced)).textCase(.uppercase).tracking(1.4).foregroundStyle(color)
     }
 
     /// `.chip`: a mono pill with a hairline border, tinted when it carries a state.

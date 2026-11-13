@@ -137,7 +137,7 @@ private struct AgentActivity: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("AGENTS · LAST 14 DAYS").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text("Agents · last 14 days").eyebrow()
                 Spacer()
                 Button("Open agents") { nav.section = .agents }.controlSize(.small)
             }
@@ -206,7 +206,9 @@ private struct AgentCard: View {
     private func stat(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value).font(.title3.weight(.semibold)).monospacedDigit()
-            Text(label.uppercased()).eyebrow()
+            // Four to a narrow card: smaller and tighter than a group's eyebrow, and on one line so the numbers line up.
+            Text(label.uppercased()).font(.system(size: 9, design: .monospaced)).tracking(0.6).foregroundStyle(WebTheme.fg3)
+                .lineLimit(1).minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

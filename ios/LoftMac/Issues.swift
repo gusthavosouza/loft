@@ -24,6 +24,8 @@ struct IssuesSection: View {
                 }
             }
             .navigationTitle("Issues")
+            // The stack's own toolbar band, on the page colour like the other sections.
+            .toolbarBackground(WebTheme.canvas, for: .windowToolbar)
             .navigationDestination(for: String.self) { IssuePage(taskId: $0) }
         }
         .onAppear { store.deliveryWatchers += 1; store.loadDeliveries() }
@@ -86,7 +88,7 @@ private struct BoardColumn<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(title.uppercased()).eyebrow().foregroundStyle(tone)
+                Text(title.uppercased()).eyebrow(tone)
                 Spacer()
                 Text("\(count)").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3)
             }
