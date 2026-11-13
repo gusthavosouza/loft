@@ -6,6 +6,7 @@ import SwiftUI
 struct RepoDetail: View {
     @Environment(LoftStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     let repo: RepoSummary
     let gh: RepoGithub?
     @State private var commits: [RepoCommit]?
@@ -110,7 +111,9 @@ struct RepoDetail: View {
             eyebrow("\(title) · \(items.count)")
             if items.isEmpty { Text("None open.").foregroundStyle(.secondary) }
             ForEach(items.prefix(8)) { i in
-                Link(destination: URL(string: i.url) ?? URL(string: "https://github.com")!) {
+                Button {
+                    if let u = PushDestination.link(i.url, loftHost: store.api?.baseURL.host()) { openURL(u) }
+                } label: {
                     (Text("#\(i.number) ").font(.callout.monospaced()).foregroundStyle(.secondary) + Text(i.title)).lineLimit(1)
                 }
                 .buttonStyle(.plain)

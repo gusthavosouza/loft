@@ -13,10 +13,7 @@ public enum PushDestination: Equatable {
     /// and any other link just opens the app, like a push with no target.
     public static func from(_ info: [AnyHashable: Any], loftHost: String? = nil) -> PushDestination? {
         if let t = info["target"] as? [String: Any] {
-            if let s = t["url"] as? String {
-                guard let u = URL(string: s), opens(u, loftHost: loftHost) else { return nil }
-                return .url(u)
-            }
+            if let s = t["url"] as? String { return link(s, loftHost: loftHost).map(PushDestination.url) }
             if (t["screen"] as? String) == "task", let id = t["task_id"] as? String { return .task(taskId: id) }
             // The summary push a phone gets at the rate limit.
             if (t["screen"] as? String) == "needs_you" { return .needsYou }
@@ -32,6 +29,13 @@ public enum PushDestination: Equatable {
     public static func opens(_ url: URL, loftHost: String?) -> Bool {
         guard url.scheme?.lowercased() == "https", let host = url.host()?.lowercased() else { return false }
         return host == "github.com" || host == loftHost?.lowercased()
+    }
+
+    /// A link from the server (a Needs you Open, an Overview row) as a URL only when `opens(_:loftHost:)` trusts it;
+    /// nil otherwise, so the app does nothing with it.
+    public static func link(_ s: String?, loftHost: String?) -> URL? {
+        guard let u = s.flatMap(URL.init(string:)), opens(u, loftHost: loftHost) else { return nil }
+        return u
     }
 
     /// The relay portal page Sign in opens: only `https` on the relay's own host (`relay_url`), since the link comes

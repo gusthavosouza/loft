@@ -14,6 +14,21 @@ final class PushTests: XCTestCase {
         XCTAssertNil(PushDestination.from([:]))
     }
 
+    /// Needs you's Open and the Overview's rows open a server link only when it's https on github.com or the Loft's host.
+    func testAServerLinkOpensOnlyWhenTrusted() {
+        let host = "mac.tail1.ts.net"
+        XCTAssertEqual(PushDestination.link("https://github.com/o/r/pull/7", loftHost: host), URL(string: "https://github.com/o/r/pull/7"))
+        XCTAssertEqual(PushDestination.link("https://MAC.tail1.ts.net/tasks/t1", loftHost: host), URL(string: "https://MAC.tail1.ts.net/tasks/t1"))
+        XCTAssertNil(PushDestination.link("http://github.com/o/r/pull/7", loftHost: host), "not https")
+        XCTAssertNil(PushDestination.link("javascript:alert(1)", loftHost: host))
+        XCTAssertNil(PushDestination.link("file:///etc/passwd", loftHost: host))
+        XCTAssertNil(PushDestination.link("ssh://github.com/o/r", loftHost: host))
+        XCTAssertNil(PushDestination.link("https://evil.example/x", loftHost: host))
+        XCTAssertNil(PushDestination.link("https://github.com.evil.example/x", loftHost: host))
+        XCTAssertNil(PushDestination.link("https://mac.tail1.ts.net/x", loftHost: nil), "no connected Loft: only github.com")
+        XCTAssertNil(PushDestination.link(nil, loftHost: host))
+    }
+
     /// A Mac notification's userInfo (MacAlerts: `needs_you_id` plus `NeedsYouAlerts.target`) routes back to its item.
     func testAMacNotificationOpensItsItem() {
         func agent(_ id: String) -> NeedsYouItem.AgentRef { .init(id: id, name: "Agent") }

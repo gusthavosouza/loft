@@ -119,8 +119,8 @@ struct NeedsYouRow: View {
         case "open":
             if let t = a.target {
                 Button(a.label) {
-                    if let u = t.url.flatMap(URL.init(string:)) {
-                        openURL(u)
+                    if let s = t.url {
+                        if let u = PushDestination.link(s, loftHost: store.api?.baseURL.host()) { openURL(u) }
                     } else if t.screen == "task" {
                         nav.section = .issues
                     } else if let id = t.agentId {

@@ -233,6 +233,8 @@ private struct RunBars: View {
 }
 
 private struct GithubList: View {
+    @Environment(LoftStore.self) private var store
+    @Environment(\.openURL) private var openURL
     let title: String
     let symbol: String
     let rows: [(repo: String, item: RepoGithub.Item)]
@@ -248,7 +250,9 @@ private struct GithubList: View {
                 Text(empty).foregroundStyle(.secondary)
             } else {
                 ForEach(rows.prefix(8), id: \.item.id) { r in
-                    Link(destination: URL(string: r.item.url) ?? URL(string: "https://github.com")!) {
+                    Button {
+                        if let u = PushDestination.link(r.item.url, loftHost: store.api?.baseURL.host()) { openURL(u) }
+                    } label: {
                         HStack(alignment: .firstTextBaseline) {
                             Text("\(r.repo.split(separator: "/").last.map(String.init) ?? r.repo)#" + String(r.item.number)).font(.caption.monospaced()).foregroundStyle(.secondary)
                             Text(r.item.title).lineLimit(1)
