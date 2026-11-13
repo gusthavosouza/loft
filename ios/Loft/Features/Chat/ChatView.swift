@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 /// One agent's conversation. Messages go straight to this agent through Loft's

@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 struct NeedsYouRoute: Hashable {}
@@ -206,8 +207,10 @@ struct NeedsYouRow: View {
                 switch a.kind {
                 case "open":
                     if let t = a.target {
-                        if let u = t.url.flatMap(URL.init(string:)) {
-                            Link(a.label, destination: u).buttonStyle(.bordered).controlSize(.small)
+                        if let s = t.url {
+                            if let u = PushDestination.needsYouLink(s, loftHost: store.api?.baseURL.host(), tailnetHost: store.info?.host) {
+                                Link(a.label, destination: u).buttonStyle(.bordered).controlSize(.small)
+                            }
                         } else if t.screen == "task", let id = t.taskId {
                             NavigationLink(a.label, value: TaskRoute(id: id)).buttonStyle(.bordered).controlSize(.small)
                         } else if let id = t.agentId {

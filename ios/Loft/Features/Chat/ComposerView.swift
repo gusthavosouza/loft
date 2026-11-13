@@ -1,3 +1,4 @@
+import LoftKit
 import SwiftUI
 
 /// Multiline composer with a send button and a microphone that transcribes into the text field.
@@ -855,6 +856,7 @@ struct TagPicker: View {
 
 /// A `#` tag on a sent message: kind and title, opening the Loft issue or the pull request on GitHub.
 struct TagChip: View {
+    @Environment(LoftStore.self) private var store
     let tag: MessageTag
 
     var body: some View {
@@ -869,7 +871,7 @@ struct TagChip: View {
         if let id = tag.taskId {
             NavigationLink(value: TaskRoute(id: id)) { label }.buttonStyle(.plain)
                 .accessibilityLabel("\(tag.kind): \(tag.title)").accessibilityHint("Opens it")
-        } else if let url = tag.url.flatMap(URL.init(string:)) {
+        } else if let url = PushDestination.link(tag.url, loftHost: store.api?.baseURL.host()) {
             Link(destination: url) { label }
                 .accessibilityLabel("\(tag.kind): \(tag.title)").accessibilityHint("Opens it on GitHub")
         } else {
