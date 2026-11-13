@@ -157,8 +157,15 @@ struct LoftCommands: Commands {
 /// First the address, then the window's sections. Loft unreachable with nothing loaded yet says so.
 struct MacRootView: View {
     @Environment(LoftStore.self) private var store
+    @AppStorage(Prefs.appearance) private var appearance = AppearanceChoice.dark.rawValue
 
     var body: some View {
+        content
+            .background(WebTheme.canvas)
+            .onChange(of: appearance, initial: true) { Appearance.apply(appearance) }
+    }
+
+    @ViewBuilder private var content: some View {
         if store.connection == .notConfigured {
             AddressForm(isOnboarding: true)
                 .frame(maxWidth: 520)
@@ -210,9 +217,11 @@ struct MainWindow: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
+            .scrollContentBackground(.hidden)
+            .background(WebTheme.canvas)
             .safeAreaInset(edge: .bottom) {
                 Label {
-                    Text(store.connection.label).foregroundStyle(.secondary)
+                    Text(store.connection.label).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3)
                 } icon: {
                     Image(systemName: store.connection.isUsable ? "circle.fill" : "circle.dotted")
                         .foregroundStyle(store.connection.color)
@@ -231,6 +240,8 @@ struct MainWindow: View {
             case .settings: SettingsSection()
             }
         }
+        // The web's page, cards and text colours behind every section.
+        .webPage()
         .sheet(isPresented: $nav.picksRecipient) { RecipientPicker() }
     }
 }
@@ -274,15 +285,11 @@ struct RecipientPicker: View {
 }
 
 #if DEBUG
-/// `-render-window <folder>`: draws the main window to PNGs (the address step, or a chat, Issues, Overview and Needs you), then quits.
-/// For screenshots when a UI test can't drive the app (another copy of it is open, and XCUITest picks that one).
+/// `-render-window <folder>`: draws the main window to PNGs (the address step, or a chat, Issues, Overview, Needs you and
+/// Settings), then quits. For screenshots when a UI test can't drive the app (another copy of it is open, and XCUITest
+/// picks that one). `-appearance light|dark|system` picks the look for this launch only, without saving it.
 @MainActor
 func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
-    // `-render-appearance light|dark`: the system's own setting otherwise.
-    let args = ProcessInfo.processInfo.arguments
-    if let i = args.firstIndex(of: "-render-appearance"), i + 1 < args.count {
-        NSApp.appearance = NSAppearance(named: args[i + 1] == "dark" ? .darkAqua : .aqua)
-    }
     for _ in 0..<80 where store.agents.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
     try? await Task.sleep(for: .seconds(1))
     func png(_ name: String) {
@@ -298,7 +305,7 @@ func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
         if let id = store.agents.first(where: { $0.name == "Orchestrator" })?.id { nav.openChat(id) }
         try? await Task.sleep(for: .seconds(2))
         png("agents")
-        for section in [MacSection.issues, .overview, .needsYou] {
+        for section in [MacSection.issues, .overview, .needsYou, .settings] {
             nav.section = section
             try? await Task.sleep(for: .seconds(2))
             png("\(section)")

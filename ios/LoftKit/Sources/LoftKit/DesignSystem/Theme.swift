@@ -13,15 +13,27 @@ public enum Theme {
     public static let accent = dynamic(light: rgb(0x4F, 0x6A, 0x26), dark: rgb(0xC8, 0xF2, 0x6D))
     /// Text and icons on an accent fill: near-black on the lime, white on the deeper green.
     public static let onAccent = dynamic(light: .white, dark: PlatformColor(red: 0.03, green: 0.04, blue: 0.04, alpha: 1))
+    #if os(macOS)
+    /// The Mac app takes the web's state colours (`good`, `warn`, `bad`); the iPhone keeps its own.
+    public static let working = WebTheme.good
+    public static let attention = WebTheme.warn
+    public static let failure = WebTheme.bad
+    #else
     public static let working = Color(red: 0.30, green: 0.82, blue: 0.52)
     public static let attention = Color(red: 1.00, green: 0.72, blue: 0.25)
     public static let failure = Color(red: 1.00, green: 0.42, blue: 0.40)
+    #endif
     /// Text in those colours on a pale tint of themselves (risk labels): the same in dark mode, darker in light
     /// mode, where the bright amber and red read faintly on white (about 5:1 instead of 1.6:1 and 2.5:1).
+    #if os(macOS)
+    public static let attentionInk = dynamic(light: PlatformColor(red: 0.60, green: 0.36, blue: 0.00, alpha: 1), dark: rgb(0xF2, 0xC4, 0x6D))
+    public static let failureInk = dynamic(light: PlatformColor(red: 0.76, green: 0.18, blue: 0.16, alpha: 1), dark: rgb(0xF2, 0x7D, 0x6D))
+    #else
     public static let attentionInk = dynamic(light: PlatformColor(red: 0.60, green: 0.36, blue: 0.00, alpha: 1),
                                              dark: PlatformColor(red: 1.00, green: 0.72, blue: 0.25, alpha: 1))
     public static let failureInk = dynamic(light: PlatformColor(red: 0.76, green: 0.18, blue: 0.16, alpha: 1),
                                            dark: PlatformColor(red: 1.00, green: 0.42, blue: 0.40, alpha: 1))
+    #endif
     public static let neutral = Color.secondary
 
     #if os(iOS)

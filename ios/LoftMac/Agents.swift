@@ -17,10 +17,12 @@ struct AgentsSection: View {
         HSplitView {
             List(selection: $nav.agentId) {
                 ForEach(AgentSection.sections(filtered)) { section in
-                    Section(section.title) {
+                    Section {
                         ForEach(section.agents) { a in
                             AgentRow(agent: a, showsGroup: section.id == "leads").tag(a.id)
                         }
+                    } header: {
+                        Text(section.title).eyebrow().accessibilityLabel(section.title)
                     }
                 }
             }
@@ -76,11 +78,11 @@ struct AgentRow: View {
         HStack(spacing: 10) {
             Initials(name: agent.name, lead: agent.isLead)
             VStack(alignment: .leading, spacing: 2) {
-                Text(agent.name).fontWeight(.semibold).lineLimit(1)
+                Text(agent.name).font(.system(size: 13.5, weight: .medium)).lineLimit(1)
                 if showsGroup, !agent.team.isEmpty {
-                    Text(agent.team).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(agent.team).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3).lineLimit(1)
                 }
-                Text(subtitle(state)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(subtitle(state)).font(.caption).foregroundStyle(WebTheme.fg2).lineLimit(1)
             }
             Spacer(minLength: 4)
             Circle().fill(state.color).frame(width: 8, height: 8).help(state.label).accessibilityHidden(true)

@@ -17,7 +17,7 @@ struct NeedsYouScreen: View {
                             DisclosureGroup {
                                 ForEach(prs) { NeedsYouRow(item: $0) }
                             } label: {
-                                Label("\(name) · \(prs.count)", systemImage: "folder").font(.headline)
+                                Label("\(name) · \(prs.count)", systemImage: "folder").eyebrow()
                             }
                             .accessibilityIdentifier("needsYouProject-\(name)")
                         }
@@ -61,7 +61,7 @@ struct NeedsYouRow: View {
         case 3: Theme.failure
         case 2: Theme.attention
         case 1: Theme.accent
-        default: .secondary
+        default: WebTheme.fg3
         }
     }
 
@@ -69,15 +69,15 @@ struct NeedsYouRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
-                Text(item.title).font(.headline).lineLimit(2)
+                Text(item.title).font(.system(size: 13.5, weight: .medium)).lineLimit(2)
                 Spacer(minLength: 0)
-                if let age = item.createdAt { Text(age.shortAgo).font(.caption).foregroundStyle(.secondary) }
+                if let age = item.createdAt { Text(age.shortAgo).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3) }
             }
             if let s = assist?.summary {
                 Label(s, systemImage: "sparkles").accessibilityLabel("Summary: \(s)")
             }
             Text(item.text.isEmpty ? item.reason : item.text)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WebTheme.fg2)
                 .lineLimit(4)
                 .textSelection(.enabled)
             // Only when there's a real choice: a lone suggestion read as a command.
@@ -99,8 +99,8 @@ struct NeedsYouRow: View {
             .controlSize(.small)
             if let error { Text(error).font(.caption).foregroundStyle(Theme.failureInk) }
         }
-        .padding(12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(14)
+        .panel()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("needsYou-\(item.id)")
         .task(id: item.id) {

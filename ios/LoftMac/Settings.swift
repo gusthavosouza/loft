@@ -17,6 +17,7 @@ struct SettingsSection: View {
     @State private var restarting = false
     @State private var error: String?
     @State private var folderError: String?
+    @AppStorage(Prefs.appearance) private var appearance = AppearanceChoice.dark.rawValue
 
     private var dirty: Bool { saved.map { $0 != draft } == true || token != nil }
 
@@ -24,6 +25,14 @@ struct SettingsSection: View {
         Form {
             Section {
                 AddressForm(isOnboarding: false).padding(.vertical, 4)
+            }
+            Section("Appearance") {
+                Picker("Theme", selection: $appearance) {
+                    ForEach(AppearanceChoice.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("appearancePicker")
+                note("Dark matches Loft on the web. System follows this Mac.")
             }
             Section { AppleIntelligenceSection().toggleStyle(.checkbox).padding(.vertical, 4) }
             if saved != nil {

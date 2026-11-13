@@ -54,7 +54,6 @@ struct ChatView: View {
                     ContentUnavailableView("Couldn't load the chat", systemImage: "exclamationmark.bubble", description: Text(loadError.title))
                 }
             }
-            Divider()
             if let s = suggested, s.messageId == askingMessage?.id, draft.isEmpty, !s.replies.isEmpty {
                 HStack {
                     ForEach(s.replies, id: \.self) { r in
@@ -134,8 +133,8 @@ private struct MessageRow: View {
                 VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
                     if let from = message.fromAgentName {
                         Text(message.isMentionReply ? "\(from) · answering your mention" : "From \(from)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tint)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(Theme.accent)
                     }
                     let photos = message.photos.compactMap { store.uploadURL(agentId: message.agentId, file: $0) }
                     if !photos.isEmpty {
@@ -144,13 +143,15 @@ private struct MessageRow: View {
                     if !message.displayContent.isEmpty {
                         Text(Self.markdown(message.displayContent))
                             .textSelection(.enabled)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .foregroundStyle(isUser ? Theme.onAccent : Color.primary)
-                            .background(isUser ? Theme.accent : Color.secondary.opacity(0.12),
-                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .padding(.horizontal, isUser ? 14 : 0)
+                            .padding(.vertical, isUser ? 9 : 0)
+                            .foregroundStyle(WebTheme.fg)
+                            // As on the web: your messages in a faint bubble, the agent's as plain text.
+                            .background(isUser ? WebTheme.fg.opacity(0.07) : .clear,
+                                        in: UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 16,
+                                                                   bottomTrailingRadius: 6, topTrailingRadius: 16, style: .continuous))
                     }
-                    Text(message.createdAt, style: .time).font(.caption2).foregroundStyle(.secondary)
+                    Text(message.createdAt, style: .time).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3)
                 }
                 if !isUser { Spacer(minLength: 80) }
             }
@@ -189,10 +190,10 @@ private struct PendingRow: View {
                 }
                 if !message.text.isEmpty {
                     Text(message.text)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .foregroundStyle(Theme.onAccent)
-                        .background(Theme.accent.opacity(message.isFailed ? 0.4 : 0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .foregroundStyle(WebTheme.fg.opacity(message.isFailed ? 0.6 : 0.8))
+                        .background(WebTheme.fg.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 if let failure = message.failure {
                     HStack {
@@ -279,7 +280,7 @@ private struct Composer: View {
             if let mentions, !mentions.isEmpty {
                 Suggestions {
                     ForEach(mentions, id: \.title) { section in
-                        Text(section.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(section.title).eyebrow()
                         ForEach(section.agents) { a in
                             SuggestionButton(id: "mention-\(a.name)") { text = MentionQuery.insert(a, into: text) } label: {
                                 HStack { Initials(name: a.name, lead: a.isLead, size: 20); Text(a.name) }
@@ -321,13 +322,18 @@ private struct Composer: View {
                     .onSubmit(submit)
                     .accessibilityIdentifier("composerField")
                 micButton
-                Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title2).foregroundStyle(canSend ? Theme.accent : WebTheme.fg3) }
                     .buttonStyle(.borderless)
                     .disabled(!canSend)
                     .help("Send (Return)")
                     .accessibilityLabel("Send")
                     .accessibilityIdentifier("sendButton")
             }
+            // The web's composer: a rounded field on ink-850 with a strong hairline, green when focused.
+            .padding(10)
+            .background(WebTheme.field, in: RoundedRectangle(cornerRadius: WebTheme.panelRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WebTheme.panelRadius, style: .continuous)
+                .strokeBorder(focused ? Theme.accent.opacity(0.4) : WebTheme.lineStrong))
         }
         .padding(12)
         .onAppear { focused = true }
@@ -475,7 +481,8 @@ private struct Suggestions<Content: View>: View {
         }
         .frame(maxHeight: 220)
         .fixedSize(horizontal: false, vertical: true)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(WebTheme.field, in: RoundedRectangle(cornerRadius: WebTheme.rowRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WebTheme.rowRadius, style: .continuous).strokeBorder(WebTheme.lineStrong))
         .accessibilityIdentifier("suggestions")
     }
 }
@@ -511,9 +518,10 @@ private struct AttachmentChip: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Remove \(attachment.file.lastPathComponent)")
         }
-        .font(.caption)
+        .font(.system(size: 11, design: .monospaced))
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(.background.secondary, in: Capsule())
+        .foregroundStyle(WebTheme.fg2)
+        .overlay(Capsule().strokeBorder(WebTheme.line))
     }
 }
