@@ -33,12 +33,18 @@ public final class PushRegistrar {
 
     /// After notifications are allowed: get a token from APNs (it arrives in `didReceive(token:)`).
     public func start() async {
+        #if os(macOS)
+        // Loft registers iPhones only (backend devices.rs takes `platform: "ios"`); the Mac posts its own local
+        // notifications (LoftMac's MacAlerts) and never registers.
+        return
+        #else
         await refreshAuthorization()
         guard Platform.notificationsAllowed(authorization) else {
             if registered { await unregister() }
             return
         }
         Platform.registerForRemoteNotifications()
+        #endif
     }
 
     public func didReceive(token data: Data) {
@@ -92,6 +98,7 @@ public struct DeviceRegistration: Codable, Equatable {
     /// The server has no time zone database: `utcOffsetMinutes` is what it uses; `tz` is informational.
     public struct QuietHours: Codable, Equatable { public var start: String; public var end: String; public var tz: String; public var utcOffsetMinutes: Int }
     public var token: String
+    /// Always "ios": only the iPhone registers (see `PushRegistrar.start`).
     public var platform = "ios"
     public var environment: String
     public var bundleId: String
