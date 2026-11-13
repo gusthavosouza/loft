@@ -219,6 +219,16 @@ It's always signed with your team, even for Debug, because its entitlements need
   ```
 
   `-allowProvisioningUpdates` creates the Mac App Store and installer certificates the first time. Testers install it with Apple's TestFlight app for Mac.
+- *Icon:* the ten PNGs in `LoftMac/Assets.xcassets/AppIcon.appiconset`, plus `LoftMac/Loft.icns` built from them, which the app ships as its icon file (`CFBundleIconFile`). Xcode 27 writes an `.icns` from the asset catalog without the 256pt and 512pt images, and App Store Connect rejects the upload without them, so the Mac target doesn't ask it to. When you change the PNGs, rebuild `Loft.icns` from `ios/`:
+
+  ```sh
+  set=$(mktemp -d)/Loft.iconset; mkdir "$set"
+  for pt in 16 32 128 256 512; do
+    cp "LoftMac/Assets.xcassets/AppIcon.appiconset/icon-$pt@1x.png" "$set/icon_${pt}x${pt}.png"
+    cp "LoftMac/Assets.xcassets/AppIcon.appiconset/icon-$pt@2x.png" "$set/icon_${pt}x${pt}@2x.png"
+  done
+  iconutil -c icns "$set" -o LoftMac/Loft.icns
+  ```
 - *Update:* a TestFlight install updates from the TestFlight app (turn on Automatic Updates there). A local build updates by pulling and running it again. The backend updates on its own, so only the app's own changes need a new build.
 
 **Widgets**
