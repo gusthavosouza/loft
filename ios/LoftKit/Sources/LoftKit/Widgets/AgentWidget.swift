@@ -131,7 +131,19 @@ public struct AgentWidgetView: View {
     public var body: some View {
         switch snapshot.phase {
         case .notConnected: LoftWidgetView(.notConnected, size: .small)
-        case .unreachable: LoftWidgetView(.unreachable, size: .small)
+        case .unreachable:
+            if snapshot.name.isEmpty {
+                LoftWidgetView(.unreachable, size: .small)
+            } else {
+                // Which agent, so two Agent widgets (and the Needs you one) still look different while Loft is down.
+                VStack(alignment: .leading, spacing: 4) {
+                    face(36)
+                    Spacer(minLength: 0)
+                    name
+                    Label("Can't reach Loft", systemImage: "bolt.horizontal.circle").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
         case .notChosen: message("Pick an agent", "Edit the widget to choose who it shows.", symbol: "person.crop.circle.badge.plus")
         case .gone:
             message("Agent gone", "\(snapshot.name.isEmpty ? "This agent" : snapshot.name) was deleted. Edit the widget to pick another.",
@@ -151,13 +163,16 @@ public struct AgentWidgetView: View {
 
     @ViewBuilder private var ready: some View {
         if size == .small {
-            VStack(alignment: .leading, spacing: 3) {
-                face(40)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .top, spacing: 6) {
+                    face(32)
+                    Text(snapshot.lastMessage ?? "No messages yet.").font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                }
                 Spacer(minLength: 0)
                 name
                 status
                 if let ticket = snapshot.ticket { Text(ticket).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-                runTime.font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                runTime.font(.caption2.monospacedDigit()).foregroundStyle(.secondary).minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         } else {

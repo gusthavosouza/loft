@@ -19,7 +19,7 @@ final class AgentWidgetRenderTests: XCTestCase {
         let states: [(String, AgentWidgetSnapshot)] = [
             ("working", await load("orch")), ("idle", await load("qa")), ("approval", await load("ios")),
             ("gone", AgentWidgetSnapshot(phase: .gone, agentId: "qa", name: "QA Agent")), ("not-chosen", AgentWidgetSnapshot(phase: .notChosen)),
-            ("long-name", longName),
+            ("long-name", longName), ("offline", AgentWidgetSnapshot(phase: .unreachable, agentId: "qa", name: "QA Agent")),
         ]
         var seen: [Data] = []
         for (name, snapshot) in states {
