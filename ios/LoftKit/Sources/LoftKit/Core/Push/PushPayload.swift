@@ -38,6 +38,15 @@ public enum PushDestination: Equatable {
         return u
     }
 
+    /// A Needs you Open link: what `link(_:loftHost:)` allows, plus `http`, `https` and `vnc` on the connected Loft's
+    /// host or its tailnet host (`ServerInfo.host`), which the server builds Settings and Screen Sharing links from.
+    public static func needsYouLink(_ s: String?, loftHost: String?, tailnetHost: String?) -> URL? {
+        if let u = link(s, loftHost: loftHost) { return u }
+        guard let u = s.flatMap(URL.init(string:)), let scheme = u.scheme?.lowercased(), ["http", "https", "vnc"].contains(scheme),
+              let host = u.host()?.lowercased(), host == loftHost?.lowercased() || host == tailnetHost?.lowercased() else { return nil }
+        return u
+    }
+
     /// The relay portal page Sign in opens: only `https` on the relay's own host (`relay_url`), since the link comes
     /// from the server's reply. Nil otherwise.
     public static func portal(_ link: String?, relay: String) -> URL? {

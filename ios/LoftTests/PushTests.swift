@@ -29,6 +29,29 @@ final class PushTests: XCTestCase {
         XCTAssertNil(PushDestination.link(nil, loftHost: host))
     }
 
+    /// Needs you's Open also takes the server's Settings (`http`) and Screen Sharing (`vnc`) links on the Loft's own
+    /// hosts, and still refuses everything else.
+    func testANeedsYouLinkOpensTheLoftsOwnSettingsAndScreenSharing() {
+        func link(_ s: String, loft: String? = "127.0.0.1") -> URL? {
+            PushDestination.needsYouLink(s, loftHost: loft, tailnetHost: "mac.tail1.ts.net")
+        }
+        XCTAssertNotNil(link("http://mac.tail1.ts.net:7420/settings#mac-access"), "Open Mac access")
+        XCTAssertNotNil(link("http://mac.tail1.ts.net:7420/settings#backups"), "Open Settings")
+        XCTAssertNotNil(link("vnc://mac.tail1.ts.net"), "Screen Sharing")
+        XCTAssertNotNil(link("vnc://MAC.tail1.ts.net"))
+        XCTAssertNotNil(link("http://127.0.0.1:7420/settings#push"), "the connected Loft's own host")
+        XCTAssertNotNil(link("https://github.com/o/r/pull/7"), "what any server link may open")
+        XCTAssertNil(link("http://mac.tail1.ts.net.evil.example/settings"), "look-alike host")
+        XCTAssertNil(link("vnc://mac.tail1.ts.net.evil.example"), "look-alike host")
+        XCTAssertNil(link("http://evil.example/settings"), "foreign host")
+        XCTAssertNil(link("vnc://evil.example"), "foreign host")
+        XCTAssertNil(link("http://github.com/o/r"), "http only on the Loft's hosts")
+        XCTAssertNil(link("ssh://mac.tail1.ts.net"), "other schemes")
+        XCTAssertNil(link("file:///etc/passwd"))
+        XCTAssertNil(link("javascript:alert(1)"))
+        XCTAssertNil(PushDestination.needsYouLink("vnc://mac.tail1.ts.net", loftHost: nil, tailnetHost: nil), "no known hosts")
+    }
+
     /// A Mac notification's userInfo (MacAlerts: `needs_you_id` plus `NeedsYouAlerts.target`) routes back to its item.
     func testAMacNotificationOpensItsItem() {
         func agent(_ id: String) -> NeedsYouItem.AgentRef { .init(id: id, name: "Agent") }

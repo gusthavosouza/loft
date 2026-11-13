@@ -208,7 +208,7 @@ struct NeedsYouRow: View {
                 case "open":
                     if let t = a.target {
                         if let s = t.url {
-                            if let u = PushDestination.link(s, loftHost: store.api?.baseURL.host()) {
+                            if let u = PushDestination.needsYouLink(s, loftHost: store.api?.baseURL.host(), tailnetHost: store.info?.host) {
                                 Link(a.label, destination: u).buttonStyle(.bordered).controlSize(.small)
                             }
                         } else if t.screen == "task", let id = t.taskId {
