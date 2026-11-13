@@ -30,9 +30,9 @@ done
 # Every upload needs a new build number; a UTC timestamp always increases.
 BUILD_NUMBER="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 if [[ "${MAC:-0}" == 1 ]]; then
-  target=LoftMac platform=macOS what="Mac app" OUT=build/testflight-mac
+  target=LoftMac platform=macOS what="Mac app" OUT=build/testflight-mac icons=LoftMac/Assets.xcassets/AppIcon.appiconset
 else
-  target=Loft platform=iOS what=app OUT=build/testflight
+  target=Loft platform=iOS what=app OUT=build/testflight icons=Loft/Resources/Assets.xcassets/AppIcon.appiconset
 fi
 ARCHIVE="$OUT/$target.xcarchive"
 LOG="$OUT/xcodebuild.log"
@@ -66,6 +66,13 @@ team=$(awk -F' = ' '$1 ~ /^ +DEVELOPMENT_TEAM$/ {print $2}' <<<"$ids")
 bundle=$(awk -F' = ' '$1 ~ /^ +PRODUCT_BUNDLE_IDENTIFIER$/ {print $2}' <<<"$ids")
 if [[ -z "$team" || "$bundle" == com.example.* ]]; then
   echo "Set LOFT_TEAM_ID and LOFT_BUNDLE_ID in ios/Config/Local.xcconfig (see Local.xcconfig.example) or the environment." >&2
+  exit 2
+fi
+
+# App Store Connect rejects an upload whose icon set is missing a file, so check it before a long build.
+missing=$(python3 -c 'import json,os,sys; d=sys.argv[1]; print(" ".join(i["filename"] for i in json.load(open(d+"/Contents.json"))["images"] if "filename" in i and not os.path.exists(d+"/"+i["filename"])))' "$icons")
+if [[ -n "$missing" ]]; then
+  echo "The app icon set ios/$icons is missing: $missing" >&2
   exit 2
 fi
 
