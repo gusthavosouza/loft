@@ -16,12 +16,17 @@ public enum SharedServer {
         return String(data: data, encoding: .utf8).flatMap(URL.init(string:))
     }
 
-    public static func save(_ server: URL) {
+    /// Saves the address; a failure (no shared Keychain group, as in an unsigned build) is logged, since the widgets
+    /// then stay on "not connected".
+    @discardableResult
+    public static func save(_ server: URL) -> OSStatus {
         SecItemDelete(query as CFDictionary)
         var q = query
         q[kSecValueData] = Data(server.absoluteString.utf8)
         q[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(q as CFDictionary, nil)
+        let status = SecItemAdd(q as CFDictionary, nil)
+        if status != errSecSuccess { Log.sync.error("widgets: saving the Loft address to the Keychain failed (\(status))") }
+        return status
     }
 
     public static func delete() {
