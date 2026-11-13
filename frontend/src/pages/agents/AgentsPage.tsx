@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { PanelRightClose, PanelRightOpen, Plus } from "lucide-react";
-import { api, type Agent, type GrillSession, type Message, type PermissionRequest, type PullRequest } from "../../lib/api";
+import { api, roleLabel, type Agent, type GrillSession, type Message, type PermissionRequest, type PullRequest } from "../../lib/api";
 import { useServerEvents, type ServerEvent } from "../../lib/events";
 import { cx, fmtNum, timeAgo } from "../../lib/format";
 import { contextWarns, listedContext } from "../../lib/context";
@@ -100,8 +100,21 @@ export default function AgentsPage() {
     api.markRead(selectedId!).catch(() => {});
   }, [selected?.unread_reply, selectedId, visible]);
 
+  // The agent whose messages are shown: until it's the selected one, the chat says it's loading.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const current = useRef(selectedId);
+  current.current = selectedId;
   const loadMessages = useCallback(() => {
-    if (selectedId) api.messages(selectedId).then(setMessages);
+    if (!selectedId) return;
+    api.messages(selectedId).then(
+      (ms) => {
+        // A late answer for the agent the user left would show its chat in another's.
+        if (current.current !== selectedId) return;
+        setMessages(ms);
+        setLoadedFor(selectedId);
+      },
+      () => current.current === selectedId && setLoadedFor(selectedId),
+    );
   }, [selectedId]);
 
   useEffect(() => {
@@ -277,11 +290,6 @@ export default function AgentsPage() {
                               {a.queued_messages.length} queued
                             </span>
                           )}
-                          {!!a.project_problems?.length && (
-                            <span className="shrink-0 rounded-full border border-warn/60 px-1.5 font-mono text-[10px] text-warn" title={a.project_problems.map((f) => `${f.project}: ${f.problem}`).join("\n")}>
-                              pick projects
-                            </span>
-                          )}
                           {(a.running || listedContext(a) != null) && (
                             <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[10.5px] tabular-nums text-fg-3">
                               {listedContext(a) != null && (
@@ -297,7 +305,7 @@ export default function AgentsPage() {
                           {a.running || a.status === "waiting" ? (
                             <span className={s.text}>{s.label}</span>
                           ) : (
-                            <>{[a.title || "agent", shownProjects(a), a.last_run_at ? timeAgo(a.last_run_at) : "never run"].filter(Boolean).join(" · ")}</>
+                            <>{[roleLabel(a.role), shownProjects(a), a.last_run_at ? timeAgo(a.last_run_at) : "never run"].filter(Boolean).join(" · ")}</>
                           )}
                         </div>
                       </div>
@@ -321,6 +329,7 @@ export default function AgentsPage() {
             agent={selected}
             agents={agents ?? []}
             messages={messages}
+            loading={loadedFor !== selected.id}
             perms={permMap}
             prs={agentPrs}
             grill={grill}

@@ -72,11 +72,21 @@ pub struct Session {
     /// `client_id`s of recent commands, so a retried request isn't applied twice.
     #[serde(default)]
     pub seen_commands: Vec<String>,
-    /// The spec and tickets published while this grill ran, for the end-of-planning card.
-    #[serde(default)]
-    pub published: Option<Published>,
+    /// The specs (and standalone tickets) published while this grill ran, for the end-of-planning card.
+    /// Older sessions stored a single one.
+    #[serde(default, deserialize_with = "one_or_many")]
+    pub published: Vec<Published>,
 }
 
+fn one_or_many<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Published>, D::Error> {
+    match Value::deserialize(d)? {
+        Value::Null => Ok(vec![]),
+        v @ Value::Array(_) => serde_json::from_value(v).map_err(serde::de::Error::custom),
+        v => serde_json::from_value(v).map(|p| vec![p]).map_err(serde::de::Error::custom),
+    }
+}
+
+/// One spec with its tickets, or the standalone tickets of a repo.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Published {
     /// `owner/repo` they were published on.
@@ -173,15 +183,23 @@ pub fn record_published(state: &AppState, agent_id: &str, repo: &str, spec: Opti
 
 fn record_published_locked(state: &AppState, agent_id: &str, repo: &str, spec: Option<IssueLink>, tickets: Vec<IssueLink>) {
     let Some(mut s) = active(state, agent_id) else { return };
-    let p = s.published.get_or_insert_with(Default::default);
-    if p.repo != repo {
-        *p = Published { repo: repo.into(), ..Default::default() };
-    }
-    if let Some(sp) = spec {
-        // Publishing tickets names the spec by number only: keep the title publish_spec gave.
-        if p.spec.as_ref().is_none_or(|old| old.number != sp.number || !sp.title.is_empty()) {
-            p.spec = Some(sp);
-        }
+    // One entry per spec; tickets with no spec join their repo's first entry.
+    let at = s.published.iter().position(|p| {
+        p.repo == repo
+            && match (&p.spec, &spec) {
+                (Some(o), Some(n)) => o.number == n.number && o.id == n.id,
+                (_, None) => true,
+                (None, Some(_)) => false,
+            }
+    });
+    let at = at.unwrap_or_else(|| {
+        s.published.push(Published { repo: repo.into(), spec: spec.clone(), tickets: vec![] });
+        s.published.len() - 1
+    });
+    let p = &mut s.published[at];
+    // Publishing tickets names the spec by number only: keep the title publish_spec gave.
+    if let (Some(old), Some(new)) = (p.spec.as_mut(), spec.filter(|n| !n.title.is_empty())) {
+        *old = new;
     }
     for t in tickets {
         if !p.tickets.iter().any(|o| o.number == t.number && o.repo == t.repo) {
@@ -205,30 +223,48 @@ fn which_project(a: &Agent) -> String {
 
 /// composer after clearing context), and the roles the team lacks.
 fn end_card(state: &AppState, me: &Agent, s: &Session) -> Option<Value> {
-    let p = s.published.as_ref().filter(|p| p.spec.is_some() || !p.tickets.is_empty())?;
+    let groups: Vec<&Published> = s.published.iter().filter(|p| p.spec.is_some() || !p.tickets.is_empty()).collect();
+    if groups.is_empty() {
+        return None;
+    }
     // A plan with no repo was saved as Loft issues: links open them in Loft, and `repo` is empty.
-    let url = |i: &IssueLink| match (p.repo.as_str(), i.repo.as_str()) {
+    let url = |p: &Published, i: &IssueLink| match (p.repo.as_str(), i.repo.as_str()) {
         ("", _) => format!("/issues/{}", i.id),
         (repo, "") | (_, repo) => format!("https://github.com/{repo}/issues/{}", i.number),
     };
-    let link = |i: &IssueLink| json!({ "number": i.number, "title": i.title, "url": url(i) });
+    let link = |p: &Published, i: &IssueLink| json!({ "number": i.number, "title": i.title, "url": url(p, i) });
     // A spec's Delivery, or a single standalone ticket's.
-    let has = |n: i64| matches!(state.db.get_delivery(&p.repo, n), Ok(Some(_)));
-    let delivery = match (&p.spec, p.tickets.as_slice()) {
+    let has = |p: &Published, n: i64| matches!(state.db.get_delivery(&p.repo, n), Ok(Some(_)));
+    let delivery_of = |p: &Published| match (&p.spec, p.tickets.as_slice()) {
         // A plan kept in Loft: its spec's Delivery, found by the spec's Loft issue.
         (Some(sp), _) if p.repo.is_empty() => crate::delivery::local_of(state, &me.project, &sp.id).map(|d| json!({ "repo": d.repo, "spec": d.spec, "local": true })),
         _ if p.repo.is_empty() => None,
-        (Some(sp), _) => has(sp.number).then(|| json!({ "repo": p.repo, "spec": sp.number })),
-        (None, [t]) => has(t.number).then(|| json!({ "repo": p.repo, "spec": t.number, "standalone": true })),
+        (Some(sp), _) => has(p, sp.number).then(|| json!({ "repo": p.repo, "spec": sp.number })),
+        (None, [t]) => has(p, t.number).then(|| json!({ "repo": p.repo, "spec": t.number, "standalone": true })),
         _ => None,
     };
-    let next = match (&p.spec, p.tickets.as_slice()) {
-        _ if delivery.is_some() => String::new(),
+    let next_of = |p: &Published| match (&p.spec, p.tickets.as_slice()) {
         _ if p.repo.is_empty() => say(s, "Implement the plan: hand its ready Loft issues to the team", "Implemente o plano: entregue as issues prontas do Loft ao time"),
         (Some(sp), _) => say(s, &format!("Implement spec #{}: hand the ready tickets to the team", sp.number), &format!("Implemente a spec #{}: entregue os tickets prontos ao time", sp.number)),
         (None, [t]) => say(s, &format!("Implement ticket #{}", t.number), &format!("Implemente o ticket #{}", t.number)),
         (None, _) => say(s, "Implement the ready tickets: hand them to the team", "Implemente os tickets prontos: entregue-os ao time"),
     };
+    // One entry per spec, each with its own Delivery.
+    let entries: Vec<(Value, Option<Value>)> = groups
+        .iter()
+        .map(|p| {
+            let delivery = delivery_of(p);
+            let entry = json!({
+                "repo": p.repo,
+                "spec": p.spec.as_ref().map(|i| link(p, i)),
+                "tickets": p.tickets.iter().map(|t| link(p, t)).collect::<Vec<_>>(),
+                "delivery": delivery,
+            });
+            (entry, delivery)
+        })
+        .collect();
+    // Left in the composer: for the first spec without a Delivery.
+    let next = groups.iter().zip(&entries).find(|(_, (_, d))| d.is_none()).map(|(p, _)| next_of(p)).unwrap_or_default();
     let missing = crate::planning::missing_roles(state, me.team());
     let setup = (!missing.is_empty()).then(|| {
         let labels: Vec<&str> = missing.iter().map(|r| crate::planning::role_label(r)).collect();
@@ -237,26 +273,30 @@ fn end_card(state: &AppState, me: &Agent, s: &Session) -> Option<Value> {
             Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
             None => unreachable!("only a team missing a role gets a setup"),
         };
-        let plan = match (&p.spec, p.tickets.first()) {
-            _ if p.repo.is_empty() => format!("“{}”, saved as Loft issues", p.spec.as_ref().or(p.tickets.first()).map_or("", |i| i.title.as_str())),
-            (Some(sp), _) => format!("spec #{}: {}", sp.number, url(sp)),
-            (None, Some(t)) => format!("ticket #{}: {}", t.number, url(t)),
-            (None, None) => unreachable!("a card has a spec or a ticket"),
-        };
+        let plan = groups
+            .iter()
+            .map(|p| match (&p.spec, p.tickets.first()) {
+                _ if p.repo.is_empty() => format!("“{}”, saved as Loft issues", p.spec.as_ref().or(p.tickets.first()).map_or("", |i| i.title.as_str())),
+                (Some(sp), _) => format!("spec #{}: {}", sp.number, url(p, sp)),
+                (None, Some(t)) => format!("ticket #{}: {}", t.number, url(p, t)),
+                (None, None) => unreachable!("a card has a spec or a ticket"),
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
         json!({
             "agent_id": crate::setup::LOFT_ID,
             "message": format!("Set up the team for the {} group: it has no {roles} yet. {} just planned {plan}. Propose the agents it needs and create the ones I approve.", me.team(), me.name),
         })
     });
-    Some(json!({
-        "repo": p.repo,
-        "spec": p.spec.as_ref().map(link),
-        "tickets": p.tickets.iter().map(link).collect::<Vec<_>>(),
-        "next_message": next,
-        "delivery": delivery,
-        "missing_roles": missing,
-        "setup": setup,
-    }))
+    // The first spec sits at the top, as cards always had it; further ones go in `more`.
+    let mut card = entries[0].0.clone();
+    card["next_message"] = json!(next);
+    card["missing_roles"] = json!(missing);
+    card["setup"] = json!(setup);
+    if entries.len() > 1 {
+        card["more"] = json!(entries[1..].iter().map(|(e, _)| e).collect::<Vec<_>>());
+    }
+    Some(card)
 }
 
 fn clip(s: &str, max: usize) -> String {
@@ -451,7 +491,7 @@ fn new_session(agent_id: &str, topic: &str, status: &str) -> Session {
         lang: "en".into(),
         summarized: false,
         seen_commands: vec![],
-        published: None,
+        published: vec![],
     }
 }
 
@@ -496,7 +536,7 @@ fn transcript(s: &Session) -> String {
 /// The run after the user sends a round. `context` is the agent's context size in tokens, if known.
 fn round_prompt(s: &Session, r: &Round, context: Option<u64>) -> String {
     // A long grill fills the context: before the spec is written on a degraded one, suggest compacting.
-    let ticketed = s.published.as_ref().is_some_and(|p| !p.tickets.is_empty());
+    let ticketed = s.published.iter().any(|p| !p.tickets.is_empty());
     let compact = match context {
         Some(n) if n >= COMPACT_AT && !ticketed => format!(
             "Your context holds about {}k tokens, near the end of the smart zone, and the tickets aren't published yet. Before anything else, write one short line to the user, in their language, suggesting they type `/compact` before the spec and tickets are written. Apart from that line, follow the steps below.\n\n",
@@ -1208,6 +1248,7 @@ Once the spec is published, split it into tickets the team can pick up.
 - Wide refactors go expand–contract: a first ticket adds the new way beside the old one, the next ones move the callers over, a last one removes the old way, so every ticket lands green.
 - Blockers: a ticket is blocked by another only when it can't start before that one lands. Keep the chains short so the team can work in parallel.
 - Repos: each ticket goes to one repo, one of your projects; propose it from what the slice touches. A slice that spans repos (an API plus a UI) becomes one ticket per repo, the UI one blocked by the API one, or names the primary repo it's mostly in.
+- Other specs: when the grill makes several specs (one per repo, say), a ticket can need a ticket of another spec. Decide each such blocker from what that ticket needs, never from the repos' names or a fixed order, and name it in `blocked_by` as `owner/repo#n`. In the breakdown round list every blocker that crosses specs ("<ticket> waits on <repo>#<n>") so the user can confirm or drop it, and publish the specs in dependency order (the one that blocks first, its tickets included) so you have the real numbers. Blockers can't form a loop.
 - Approve first: put the breakdown to the user as one round question, "Publish these N tickets?" (recommendation: yes), listing every ticket's title, its repo, what it delivers and what blocks it. Publish nothing before their yes; if they want changes, change the breakdown and ask again.
 - Write each ticket in the glossary's terms, in the user's language, with this template (no Parent for a standalone ticket; don't list blockers, Loft links them):
 
@@ -1227,7 +1268,7 @@ Once the spec is published, split it into tickets the team can pick up.
   - [ ] <A behaviour someone can check.>
   ```
 
-- Publish them with `mcp__loft__publish_tickets`: the spec's number as `spec` (or the Loft issue id `publish_spec` gave, for a plan kept in Loft), and every ticket with `blocked_by` naming the titles of the tickets that block it and, when it isn't the spec's repo, its `project`. A ticket in another repo is created there, still a sub-issue of the spec and linked to its blockers across repos. Loft creates them blockers first as sub-issues of the spec, labelled `ready-for-agent` and assigned to the user, and links the blockers as GitHub dependencies. Under a spec with a spec PR it adds a `## Branch` section to each ticket naming the spec branch and PR, so don't write one yourself. Without a GitHub repo they become Loft issues under the spec, with the blockers as their dependencies. After a failure, tell the user what went wrong and call it again with the same tickets: what's published is skipped. Never create issues with `gh`."#;
+- Publish them with `mcp__loft__publish_tickets`: the spec's number as `spec` (or the Loft issue id `publish_spec` gave, for a plan kept in Loft), and every ticket with `blocked_by` naming the titles of the tickets that block it (or `owner/repo#n` for one outside this list, which Loft links and the Delivery waits for) and, when it isn't the spec's repo, its `project`. A ticket in another repo is created there, still a sub-issue of the spec and linked to its blockers across repos. Loft creates them blockers first as sub-issues of the spec, labelled `ready-for-agent` and assigned to the user, and links the blockers as GitHub dependencies. Under a spec with a spec PR it adds a `## Branch` section to each ticket naming the spec branch and PR, so don't write one yourself. Without a GitHub repo they become Loft issues under the spec, with the blockers as their dependencies. After a failure, tell the user what went wrong and call it again with the same tickets: what's published is skipped. Never create issues with `gh`."#;
 
 /// The grill instructions in full.
 pub fn brief() -> String {
@@ -1247,6 +1288,22 @@ pub fn with_brief(state: &AppState, agent_id: &str, prompt: String) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn a_session_stored_with_one_published_spec_still_loads() {
+        let one = json!({ "repo": "o/r", "spec": { "number": 1, "title": "A" }, "tickets": [] });
+        let load = |v: Value| -> Vec<Published> {
+            #[derive(Deserialize)]
+            struct W {
+                #[serde(default, deserialize_with = "super::one_or_many")]
+                published: Vec<Published>,
+            }
+            serde_json::from_value::<W>(json!({ "published": v })).unwrap().published
+        };
+        assert_eq!(load(one.clone()).len(), 1);
+        assert_eq!(load(json!([one.clone(), one])).len(), 2);
+        assert!(load(Value::Null).is_empty());
+    }
+
     use super::*;
 
     #[test]

@@ -4,7 +4,7 @@ import Foundation
 /// to send to `PATCH /agents/{id}` when saved: only the fields that changed.
 public struct AgentDraft: Equatable {
     public var name: String
-    public var title: String
+    public var role: String
     public var group: String
     public var prompt: String
     public var model: String
@@ -15,7 +15,7 @@ public struct AgentDraft: Equatable {
 
     public init(_ a: Agent) {
         name = a.name
-        title = a.title ?? ""
+        role = (a.role ?? "").isEmpty ? "custom" : a.role!
         group = a.group ?? ""
         prompt = a.prompt ?? ""
         model = a.model ?? ""
@@ -30,7 +30,7 @@ public struct AgentDraft: Equatable {
         var out: [String: JSONValue] = [:]
         func put(_ key: String, _ new: String, _ old: String) { if new != old { out[key] = .string(new) } }
         put("name", name.trimmingCharacters(in: .whitespaces), original.name)
-        put("title", title, original.title)
+        put("role", role, original.role)
         put("group", group.trimmingCharacters(in: .whitespaces), original.group)
         put("prompt", prompt, original.prompt)
         put("model", model, original.model)

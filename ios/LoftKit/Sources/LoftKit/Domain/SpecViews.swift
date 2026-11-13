@@ -15,6 +15,8 @@ public struct DeliverySummary: Codable, Hashable {
     /// Ready tickets nobody has yet, while the Lead hands them out.
     public var waitingForLead: [Int]? = nil
     public var waitingOnYou: [Int]? = nil
+    /// What its tickets wait on outside it.
+    public var waitsOn: [WaitsOn]? = nil
 
     public struct Current: Codable, Hashable { public var number: Int; public var title: String }
     public struct Ticket: Codable, Hashable {
@@ -27,6 +29,8 @@ public struct DeliverySummary: Codable, Hashable {
         public var agentName: String? = nil
         /// Review role (qa, security…) to `pass` or still waiting.
         public var verdicts: [String: String]? = nil
+        /// Open tickets in another spec or repo it waits on (`owner/repo#n`).
+        public var waitingOn: [String]? = nil
     }
 }
 
@@ -104,6 +108,11 @@ public enum SpecViews {
         return "Loft" + (spec.project.isEmpty ? "" : " · \(spec.project)")
     }
 
+    /// The project a spec row shows next to its ref; nil when the ref already names it (a plan kept in Loft) or there is none.
+    public static func project(_ spec: HBTask) -> String? {
+        spec.github == nil || spec.project.isEmpty ? nil : spec.project
+    }
+
     /// Tickets done of all: the Delivery's, else GitHub's sub-issue count, else the spec's sub-issues in Loft; nil when none.
     public static func progress(of spec: HBTask, _ d: DeliverySummary?, tasks: [HBTask]) -> (done: Int, total: Int)? {
         if let d, !d.tickets.isEmpty { return (d.tickets.filter { $0.state == "closed" }.count, d.tickets.count) }
@@ -121,6 +130,7 @@ public enum SpecViews {
         public var taskId: String?
         public var verdicts: [String: String]
         public var current: Bool
+        public var waitingOn: [String] = []
     }
 
     /// A spec's tickets: its Delivery's when it has them, else its sub-issues in Loft (the web's `ticketsOf`).
@@ -130,7 +140,7 @@ public enum SpecViews {
                 let own = t.id.flatMap { id in tasks.first { $0.id == id } }
                     ?? tasks.first { x in spec.github.map { x.github?.repo == $0.repo && x.github?.number == t.number } ?? false }
                 return TicketLine(id: "\(t.number)", number: own?.github?.number ?? t.number, title: t.title, state: t.state,
-                                  taskId: own?.id, verdicts: t.verdicts ?? [:], current: t.agentName != nil)
+                                  taskId: own?.id, verdicts: t.verdicts ?? [:], current: t.agentName != nil, waitingOn: t.waitingOn ?? [])
             }
         }
         return tasks.filter { $0.parentId == spec.id && $0.state != .cancelled }.map { x in
@@ -139,9 +149,11 @@ public enum SpecViews {
         }
     }
 
-    /// A ticket's state in a few words (the web's `ticketLabel`).
-    public static func ticketLabel(_ state: String) -> String {
-        switch state {
+    /// A ticket's state in a few words (the web's `ticketLabel`): an open one waiting on tickets in another spec
+    /// says which.
+    public static func ticketLabel(_ state: String, waitingOn: [String] = []) -> String {
+        if state == "open" && !waitingOn.isEmpty { return "waiting on " + waitingOn.joined(separator: ", ") }
+        return switch state {
         case "closed": "done"
         case "started": "building"
         case "review": "in review"

@@ -4,7 +4,7 @@ import XCTest
 /// An agent's settings as the Mac edits them (spec #382): only what changed is sent, and the list has it at once.
 @MainActor
 final class AgentDraftTests: XCTestCase {
-    private let agent = Agent(id: "a", name: "Dev", title: nil, project: "loft", model: "opus", effort: nil,
+    private let agent = Agent(id: "a", name: "Dev", project: "loft", model: "opus", effort: nil,
                               permissionMode: "auto", intervalMinutes: 60, status: "idle", prompt: "Build tickets.",
                               freshContext: "above_80k", group: "Loft")
 
@@ -19,8 +19,9 @@ final class AgentDraftTests: XCTestCase {
         d.permissionMode = "plan"
         d.intervalMinutes = 0
         d.group = ""
+        d.role = "qa"
         XCTAssertEqual(d.changes(from: original), [
-            "name": .string("Web Dev"), "permission_mode": .string("plan"), "interval_minutes": .number(0), "group": .string(""),
+            "name": .string("Web Dev"), "permission_mode": .string("plan"), "interval_minutes": .number(0), "group": .string(""), "role": .string("qa"),
         ])
     }
 

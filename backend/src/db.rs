@@ -99,6 +99,10 @@ pub struct Delivery {
     /// For a plan kept in Loft: the branch the spec branch started from and merges into.
     #[serde(default)]
     pub base: String,
+    /// For a plan kept in Loft whose tickets name repos inside the project folder: each repo's base, by the
+    /// repo's subfolder (`DeliveryTicket::repo`). `base` stays the project folder's.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub bases: std::collections::BTreeMap<String, String>,
     /// For a plan kept in Loft: the spec's title, to name it.
     #[serde(default)]
     pub title: String,
@@ -165,6 +169,9 @@ pub struct DeliveryTicket {
     pub title: String,
     #[serde(default)]
     pub blocked_by: Vec<i64>,
+    /// Open blockers outside this spec, as `owner/repo#n`: the ticket isn't handed out until each closes.
+    #[serde(default)]
+    pub waiting_on: Vec<String>,
     /// "open", "started" (being built, or fixed), "review" (submitted), "changes" (sent back for changes while
     /// the Dev builds another ticket: its fix waits in `changes`), "closing" (passed, its close failed and is
     /// retried), "needs_human" (too many changes rounds), "elsewhere" (being built outside this Delivery:
@@ -186,6 +193,10 @@ pub struct DeliveryTicket {
     /// In a plan kept in Loft: the ticket's Loft issue (`number` is then its place in the plan).
     #[serde(default)]
     pub id: String,
+    /// In a plan kept in Loft in a folder of several repos: the repo inside the project folder it changes, its
+    /// subfolder (`api`). Its spec branch is made and merged there. Empty: the project folder itself.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub repo: String,
     /// Why an "elsewhere" ticket is skipped: "is labelled in-progress" or "has its own open PR #12".
     #[serde(default)]
     pub skipped: String,
@@ -198,6 +209,14 @@ pub struct DeliveryTicket {
     /// The notes of the last changes verdict on this ticket (what a reassigned Dev starts from).
     #[serde(default)]
     pub notes: String,
+    /// What a "started" ticket waits on, after its Dev called `wait_ticket`: an issue as `owner/repo#N`, or an
+    /// agent's id. Empty while it's being built. Loft wakes the Dev when that issue closes or that agent
+    /// messages it.
+    #[serde(default)]
+    pub wait_for: String,
+    /// Why it waits, in the Dev's words.
+    #[serde(default)]
+    pub wait_reason: String,
 }
 
 impl DeliveryTicket {
@@ -211,7 +230,6 @@ impl DeliveryTicket {
 pub struct Agent {
     pub id: String,
     pub name: String,
-    pub title: String,
     /// Its main project: where its issues go by default. Always the first of `projects` ("" when it has
     /// none), so clients that only know one project keep working.
     #[serde(default)]
@@ -1573,6 +1591,7 @@ impl Db {
                 local: false,
                 spec_id: String::new(),
                 base: String::new(),
+                bases: Default::default(),
                 title: String::new(),
                 created_at: now(),
             };
@@ -1595,6 +1614,12 @@ impl Db {
             "INSERT OR REPLACE INTO deliveries (repo, spec, state, data) VALUES (?1, ?2, ?3, ?4)",
             params![d.repo, d.spec, d.state, serde_json::to_string(d)?],
         )?;
+        Ok(())
+    }
+
+    pub fn delete_delivery(&self, repo: &str, spec: i64) -> Result<()> {
+        let c = self.0.lock().unwrap();
+        c.execute("DELETE FROM deliveries WHERE repo = ?1 AND spec = ?2", params![repo, spec])?;
         Ok(())
     }
 
@@ -1631,12 +1656,14 @@ impl Db {
     }
 
     /// Records on an end-of-planning card that its Delivery started: who got which ticket.
-    pub fn mark_delivery_started(&self, agent_id: &str, id: i64, started: &Value) -> Result<()> {
+    pub fn mark_delivery_started(&self, agent_id: &str, id: i64, entry: Option<usize>, started: &Value) -> Result<()> {
         let c = self.0.lock().unwrap();
+        // The card's first spec sits at its top; the others in `more`.
+        let at = entry.map_or("$.grill.end_card".to_string(), |i| format!("$.grill.end_card.more[{i}]"));
         c.execute(
-            "UPDATE messages SET meta = json_set(meta, '$.grill.end_card.delivery.started', json(?3))
-             WHERE agent_id = ?1 AND id = ?2 AND json_type(meta, '$.grill.end_card.delivery') = 'object'",
-            params![agent_id, id, started.to_string()],
+            "UPDATE messages SET meta = json_set(meta, ?3 || '.delivery.started', json(?4))
+             WHERE agent_id = ?1 AND id = ?2 AND json_type(meta, ?3 || '.delivery') = 'object'",
+            params![agent_id, id, at, started.to_string()],
         )?;
         Ok(())
     }

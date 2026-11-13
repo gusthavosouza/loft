@@ -90,8 +90,9 @@ public struct GrillQuestion: Codable, Hashable, Identifiable {
     }
 }
 
-/// The end of a planning grill: the spec and tickets it published, the message Clear context leaves in the
-/// composer, and the roles the project's team lacks, with the message that asks `loft` to fill them.
+/// The end of a planning grill: the specs and tickets it published, the message Clear context leaves in the
+/// composer, and the roles the project's team lacks, with the message that asks `loft` to fill them. The first spec
+/// sits at the top level (older cards have only that one); further specs of the grill are in `more`.
 public struct EndCard: Codable, Hashable {
     public struct Issue: Codable, Hashable {
         public var number: Int
@@ -124,6 +125,16 @@ public struct EndCard: Codable, Hashable {
         public var spec: Int
         public var local: Bool? = nil
         public var started: Started?
+
+        /// A spec's key on the card: two repos can each have a #1.
+        public var key: String { "\(repo)#\(spec)" }
+    }
+    /// One published spec (or standalone ticket) with its tickets and its own Delivery.
+    public struct Spec: Codable, Hashable {
+        public var repo: String
+        public var spec: Issue?
+        public var tickets: [Issue]
+        public var delivery: Delivery? = nil
     }
     public var repo: String
     public var spec: Issue?
@@ -134,6 +145,10 @@ public struct EndCard: Codable, Hashable {
     public var missingRoles: [String]
     public var setup: Setup?
     public var delivery: Delivery? = nil
+    public var more: [Spec]? = nil
+
+    /// Every spec the grill published, the top-level one first.
+    public var specs: [Spec] { [Spec(repo: repo, spec: spec, tickets: tickets, delivery: delivery)] + (more ?? []) }
 
     /// The team check as a suggestion: a missing role never stops a Delivery (the planning agent builds when there
     /// is no Dev, and a missing reviewer is skipped), so say that, then which agents would help. Empty for a full team.

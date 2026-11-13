@@ -11,6 +11,8 @@ public struct IssueDelivery: Codable, Hashable {
         public var skipped: String
         /// The agent on it while it's started, in review, closing or needs you; nil otherwise.
         public var agentName: String? = nil
+        /// Open tickets in another spec or repo it waits on (`owner/repo#n`).
+        public var waitingOn: [String]? = nil
     }
     public struct Current: Codable, Hashable {
         public var number: Int
@@ -46,6 +48,8 @@ public struct IssueDelivery: Codable, Hashable {
     /// Ready tickets nobody has yet, while the Lead hands them out.
     public var waitingForLead: [Int]? = nil
     public var waitingOnYou: [Int]? = nil
+    /// What the spec's tickets wait on outside it: starting it before those close leaves them waiting.
+    public var waitsOn: [WaitsOn]? = nil
 
     /// How a card's state line reads: the colour it takes.
     public enum Tone: String { case running, stalled, paused, needsYou = "needs_you", final, done }
@@ -104,6 +108,35 @@ public struct IssueDelivery: Codable, Hashable {
             return "With \(who)\(pr.map { " on PR #\($0)" } ?? ""). Its reviewers look at it next; #\(number) closes when the PR merges."
         }
         return "Started\(pr.map { " on PR #\($0)" } ?? ""); the agent building it is gone. #\(number) closes when the PR merges."
+    }
+}
+
+/// An open ticket outside a spec that one of its tickets waits on (`owner/repo#n`), and the Delivery that owns it
+/// (nil when it has none). Backend delivery.rs `waits_on`.
+public struct WaitsOn: Codable, Hashable {
+    public struct Owner: Codable, Hashable {
+        public var repo: String
+        public var spec: Int
+        public var started: Bool
+        /// The spec's Loft issue, to start its Delivery from here.
+        public var issueId: String?
+    }
+    public var blocker: String
+    public var delivery: Owner?
+
+    /// A spec to start first: its repo, number and Loft issue.
+    public struct First: Hashable { public var repo: String; public var spec: Int; public var issueId: String }
+
+    /// The specs to start first: each other spec that owns an open blocker and hasn't started, once (the web's
+    /// `specsToStartFirst`).
+    public static func specsToStartFirst(_ waits: [WaitsOn]?) -> [First] {
+        var out: [First] = []
+        for case let d? in (waits ?? []).map(\.delivery) where !d.started {
+            if let id = d.issueId, !out.contains(where: { $0.repo == d.repo && $0.spec == d.spec }) {
+                out.append(First(repo: d.repo, spec: d.spec, issueId: id))
+            }
+        }
+        return out
     }
 }
 

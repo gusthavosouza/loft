@@ -134,7 +134,9 @@ struct AgentSettingsView: View {
         Form {
             Section {
                 TextField("Name", text: $draft.name).accessibilityIdentifier("settingsName")
-                TextField("Title", text: $draft.title, prompt: Text("e.g. Release captain"))
+                Picker("Role", selection: $draft.role) {
+                    ForEach(Agent.roles, id: \.id) { Text($0.label).tag($0.id) }
+                }
                 TextField("Group", text: $draft.group, prompt: Text("No group"))
                     .help("Its team: agents in the same group are listed together and share one Lead.")
             }

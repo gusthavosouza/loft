@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arrange, boardIssues, deliveryOf, parseBoard, specOfAgent, specRef, stageOf, ticketLabel, ticketsOf, withBoard, withOpen, type DeliverySummary } from "../src/lib/specViews.ts";
+import { arrange, boardIssues, deliveryOf, parseBoard, specMeta, specOfAgent, specRef, stageOf, ticketLabel, ticketsOf, withBoard, withOpen, type DeliverySummary } from "../src/lib/specViews.ts";
 import type { Task } from "../src/lib/api.ts";
 
 const spec = (o: Partial<Task> & { gh?: [string, number] }): Task =>
@@ -80,6 +80,12 @@ test("dropped specs stay off the board unless asked for, and a fork's spec and i
   assert.equal(specRef(task({ project: "web" })), "Loft · web");
 });
 
+test("a spec card names its project once: next to a GitHub ref, and only in the ref of a plan kept in Loft", () => {
+  assert.deepEqual(specMeta(task({ project: "web", github: { repo: "me/loft", number: 26 } })), { ref: "me/loft#26", project: "web" });
+  assert.deepEqual(specMeta(task({ project: "web" })), { ref: "Loft · web", project: null }, "not twice");
+  assert.deepEqual(specMeta(task({ project: "", github: { repo: "me/loft", number: 26 } })), { ref: "me/loft#26", project: null }, "no project, nothing added");
+});
+
 test("the board's open pane is in the URL, with the spec it came from, and leaves the filters alone", () => {
   const p = new URLSearchParams("view=specs&project=loft");
   assert.equal(withOpen(p, "t1").toString(), "view=specs&project=loft&open=t1");
@@ -126,4 +132,10 @@ test("the Issues column holds the issues that are no spec and no spec's ticket, 
   assert.deepEqual(boardIssues(all.map((x) => (x.id === "a" ? { ...x, status: "blocked" } : x)), ds, true, { ...o, needsMe: true }, false).map((x) => x.id), ["a"]);
   assert.deepEqual(boardIssues(all, ds, false, o, true), [], "nothing is decided before the Deliveries load, so no ticket flickers in");
   assert.deepEqual(boardIssues(all, [], true, o, false).map((x) => x.id), ["b", "a", "e"], "loaded with no Deliveries: all stay");
+});
+
+test("an open ticket waiting on another spec's ticket says which", () => {
+  assert.deepEqual(ticketLabel("open", ["o/ext#9", "o/ext#10"]), { text: "waiting on o/ext#9, o/ext#10", tone: "warn" });
+  assert.equal(ticketLabel("open", []).text, "open");
+  assert.equal(ticketLabel("started", ["o/ext#9"]).text, "building");
 });
