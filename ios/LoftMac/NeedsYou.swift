@@ -80,6 +80,9 @@ struct NeedsYouRow: View {
                 .foregroundStyle(WebTheme.fg2)
                 .lineLimit(4)
                 .textSelection(.enabled)
+            if item.type == "permission", let request = store.permissions.first(where: { "permission:\($0.id)" == item.id }) {
+                PermissionExplainerRow(request: request)
+            }
             // Only when there's a real choice: a lone suggestion read as a command.
             if let replies = assist?.replies, replies.count >= 2, item.answerAction != nil {
                 HStack(spacing: 6) {
@@ -241,5 +244,42 @@ private struct NeedsYouAnswerSheet: View {
         }
         .padding()
         .frame(width: 480)
+    }
+}
+
+/// "What does this do?" on a permission request, then the on-device model's sentence (labelled as a suggestion), or a
+/// note that there isn't one. Only on request, and you still decide.
+private struct PermissionExplainerRow: View {
+    let request: PermissionRequest
+    @State private var explanation: String?
+    @State private var explaining = false
+
+    var body: some View {
+        if let e = explanation {
+            if e.isEmpty {
+                Text("No plain explanation for this one. Check the request above.").font(.footnote).foregroundStyle(.secondary)
+            } else {
+                Label(e, systemImage: "sparkles").font(.footnote)
+                    .accessibilityLabel("Plain explanation, from the on-device model: \(e)")
+                    .accessibilityIdentifier("permissionExplanation")
+            }
+        } else if explaining {
+            Label("Explaining…", systemImage: "sparkles").font(.footnote).foregroundStyle(.secondary)
+        } else if OnDeviceFeatures.explainOn {
+            Button { explain() } label: { Label("What does this do?", systemImage: "sparkles") }
+                .font(.footnote)
+                .buttonStyle(.borderless)
+                .foregroundStyle(Theme.accent)
+                .accessibilityIdentifier("permissionExplain")
+        }
+    }
+
+    private func explain() {
+        explaining = true
+        VoiceLog.shared.add("ai: explanation asked for \(request.toolName)")
+        Task {
+            explanation = await OnDeviceFeatures.explain(request) ?? ""
+            explaining = false
+        }
     }
 }

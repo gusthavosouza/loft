@@ -17,6 +17,15 @@ struct ChatView: View {
     @State private var suggested: (messageId: Int64, replies: [String])?
     /// "Send to …?": the model thinks the message just sent to the Lead was meant for another agent.
     @State private var route: (text: String, agentId: String)?
+    /// "Got it, looking into …": the on-device model's first reply to a message to the Orchestrator, shown until the
+    /// real reply comes after message `after` (or for two minutes at most).
+    @State private var quickAck: (agentId: String, after: Int64, text: String, at: Date)?
+
+    private var shownQuickAck: String? {
+        guard let a = quickAck, a.agentId == agent.id, Date().timeIntervalSince(a.at) < 120,
+              !store.conversation(agent.id).contains(where: { $0.id > a.after && $0.role == "assistant" && $0.kind == "text" }) else { return nil }
+        return a.text
+    }
 
     /// The agent's latest message, when it's the last word in the chat and ends on a question.
     private var askingMessage: ChatMessage? {
@@ -44,6 +53,7 @@ struct ChatView: View {
                     }
                     ForEach(shown) { MessageRow(message: $0) }
                     ForEach(store.pending(for: agent.id)) { PendingRow(message: $0) }
+                    if let a = shownQuickAck { QuickAckRow(text: a) }
                 }
                 .padding(16)
             }
@@ -81,8 +91,16 @@ struct ChatView: View {
             }
             Composer(agent: agent, text: $draft, dictated: $draftByVoice, talk: { talking = true }) { sent in
                 route = nil
-                guard store.orchestratorId == agent.id, #available(macOS 26.0, *) else { return }
+                quickAck = nil
+                guard store.orchestratorId == agent.id else { return }
                 let id = agent.id
+                let before = store.conversation(id).last?.id ?? 0
+                Task {
+                    guard let ack = await OnDeviceFeatures.quickAck(for: sent), agent.id == id else { return }
+                    VoiceLog.shared.add("ai: quick acknowledgement: \(ack)")
+                    quickAck = (id, before, ack, Date())
+                }
+                guard #available(macOS 26.0, *) else { return }
                 Task {
                     guard let target = await OnDeviceFeatures.routeGuess(for: sent, agents: store.agents, orchestratorId: store.orchestratorId),
                           agent.id == id else { return }
@@ -177,6 +195,27 @@ private struct MessageRow: View {
 }
 
 /// A message on its way, or one that failed with Retry.
+/// The on-device model's one-line first reply, styled apart from real replies until one arrives.
+private struct QuickAckRow: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(text)
+            Label("Quick reply from this Mac · the real one is on its way", systemImage: "sparkles")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.accent.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3])) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Quick reply: \(text)")
+        .accessibilityIdentifier("quickAck")
+    }
+}
+
 private struct PendingRow: View {
     @Environment(LoftStore.self) private var store
     let message: PendingMessage
