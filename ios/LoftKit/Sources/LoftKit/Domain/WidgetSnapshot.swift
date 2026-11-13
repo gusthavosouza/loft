@@ -61,7 +61,8 @@ public struct WidgetSnapshot: Equatable {
 
     public init(phase: Phase) { self.phase = phase }
 
-    public init(needsYou: NeedsYouList, agents: [Agent], weekSpend: Double?) {
+    /// `permissions`: an agent with one pending is waiting on the user, not working (like the menu bar).
+    public init(needsYou: NeedsYouList, agents: [Agent], permissions: [PermissionRequest] = [], weekSpend: Double?) {
         phase = .ready
         needsCount = needsYou.count
         urgent = needsYou.urgent
@@ -70,7 +71,9 @@ public struct WidgetSnapshot: Equatable {
             return Item(id: $0.id, title: $0.title, agentName: $0.agent?.name, urgency: $0.urgency,
                         link: agentId.map(DeepLink.agent) ?? .needsYou)
         }
-        working = agents.filter { AgentState(agent: $0, pendingApprovals: 0) == .working }
+        working = agents.filter { a in
+            AgentState(agent: a, pendingApprovals: permissions.filter { $0.isPending && $0.agentId == a.id }.count) == .working
+        }
             .map(\.name).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         self.weekSpend = weekSpend
     }
@@ -87,8 +90,9 @@ public struct WidgetSnapshot: Equatable {
         do {
             async let needs = api.needsYou()
             async let agents = api.agents()
+            async let permissions = api.permissions()
             async let spend = try? api.weekSpend()
-            return WidgetSnapshot(needsYou: try await needs, agents: try await agents, weekSpend: await spend)
+            return WidgetSnapshot(needsYou: try await needs, agents: try await agents, permissions: try await permissions, weekSpend: await spend)
         } catch {
             return .unreachable
         }

@@ -36,6 +36,20 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertNil(DeepLink(url: URL(string: "https://example.com/needs-you")!))
     }
 
+    /// Like the menu bar: an agent waiting on a permission needs the user, so it isn't listed as working.
+    func testAnAgentWaitingOnAPermissionIsNotWorking() async throws {
+        let api = FixtureAPI()
+        let agents = try await api.agents()
+        let busy = try XCTUnwrap(agents.first { AgentState(agent: $0, pendingApprovals: 0) == .working })
+        let ask = PermissionRequest(id: "w1", agentId: busy.id, source: "prompt", toolName: "Bash", input: nil, reason: nil, rule: nil,
+                                    status: "pending", createdAt: Date())
+        let needs = try await api.needsYou()
+        XCTAssertFalse(WidgetSnapshot(needsYou: needs, agents: agents, permissions: [ask], weekSpend: nil).working.contains(busy.name))
+        var answered = ask
+        answered.status = "allowed_once"
+        XCTAssertTrue(WidgetSnapshot(needsYou: needs, agents: agents, permissions: [answered], weekSpend: nil).working.contains(busy.name))
+    }
+
     func testUnknownSpendIsLeftOut() async throws {
         let s = try await fixture(spend: nil)
         XCTAssertNil(s.spendText)
