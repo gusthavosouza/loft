@@ -1,3 +1,4 @@
+import AppIntents
 import LoftKit
 import SwiftUI
 import WidgetKit
@@ -7,5 +8,11 @@ struct LoftWidgetsMain: WidgetBundle {
     var body: some Widget {
         LoftOverviewWidget()
         NeedsYouWidget()
+        AgentWidget()
     }
+}
+
+/// So the system finds LoftKit's intents: the widgets' buttons and settings.
+struct LoftWidgetsIntents: AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] { [LoftKitIntents.self] }
 }
