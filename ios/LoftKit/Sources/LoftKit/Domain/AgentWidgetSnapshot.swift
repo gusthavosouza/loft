@@ -73,20 +73,27 @@ public struct AgentWidgetSnapshot: Equatable {
         guard let agentId else { return AgentWidgetSnapshot(phase: .notChosen) }
         let api = LiveLoftAPI(baseURL: server)
         return await load(agentId: agentId, name: name, agents: api.agents, tasks: api.tasks,
-                          messages: { try await api.messages(agentId: agentId, limit: 50, before: nil) }, permissions: api.permissions)
+                          messages: { try await api.messages(agentId: agentId, limit: 50, before: nil) }, permissions: api.permissions,
+                          names: .standard)
     }
 
     /// The agents are required; the tasks, messages and permissions are extras, so one failing leaves its line out
     /// instead of making Loft look unreachable.
     static func load(agentId: String, name: String, agents: () async throws -> [Agent], tasks: () async throws -> [HBTask],
-                     messages: () async throws -> [ChatMessage], permissions: () async throws -> [PermissionRequest]) async -> AgentWidgetSnapshot {
+                     messages: () async throws -> [ChatMessage], permissions: () async throws -> [PermissionRequest],
+                     names: UserDefaults? = nil) async -> AgentWidgetSnapshot {
+        // The widget remembers each agent's name it showed, since the configuration loses it once the agent is deleted.
+        let key = "agentWidget.name.\(agentId)"
+        let name = name.isEmpty ? names?.string(forKey: key) ?? "" : name
         do {
             async let list = agents()
             async let issues = try? tasks()
             async let chat = try? messages()
             async let asks = try? permissions()
-            return AgentWidgetSnapshot(agentId: agentId, name: name, agents: try await list, tasks: await issues ?? [],
-                                       messages: await chat ?? [], permissions: await asks ?? [])
+            let s = AgentWidgetSnapshot(agentId: agentId, name: name, agents: try await list, tasks: await issues ?? [],
+                                        messages: await chat ?? [], permissions: await asks ?? [])
+            if s.phase == .ready { names?.set(s.name, forKey: key) }
+            return s
         } catch {
             return AgentWidgetSnapshot(phase: .unreachable, agentId: agentId, name: name)
         }

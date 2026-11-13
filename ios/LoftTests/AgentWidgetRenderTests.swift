@@ -14,9 +14,12 @@ final class AgentWidgetRenderTests: XCTestCase {
 
     @MainActor
     func testEveryStateDrawsAtBothSizesAndTheStatesLookDifferent() async throws {
+        var longName = await load("orch")
+        longName.name = "Dineout Marketplace Frontend Dev"
         let states: [(String, AgentWidgetSnapshot)] = [
             ("working", await load("orch")), ("idle", await load("qa")), ("approval", await load("ios")),
             ("gone", AgentWidgetSnapshot(phase: .gone, agentId: "qa", name: "QA Agent")), ("not-chosen", AgentWidgetSnapshot(phase: .notChosen)),
+            ("long-name", longName),
         ]
         var seen: [Data] = []
         for (name, snapshot) in states {

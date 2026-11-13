@@ -84,6 +84,22 @@ final class AgentWidgetTests: XCTestCase {
         XCTAssertEqual(s.link, .agents)
     }
 
+    func testADeletedAgentKeepsTheNameTheWidgetLastShowed() async throws {
+        let names = try XCTUnwrap(UserDefaults(suiteName: "AgentWidgetTests"))
+        names.removePersistentDomain(forName: "AgentWidgetTests")
+        let api = FixtureAPI()
+        func load() async -> AgentWidgetSnapshot {
+            await AgentWidgetSnapshot.load(agentId: "qa", name: "", agents: api.agents, tasks: api.tasks,
+                                           messages: { try await api.messages(agentId: "qa", limit: 50, before: nil) },
+                                           permissions: api.permissions, names: names)
+        }
+        _ = await load()
+        try await api.deleteAgent(id: "qa", purgeFiles: false)
+        let s = await load()
+        XCTAssertEqual(s.phase, .gone)
+        XCTAssertEqual(s.name, "QA Agent", "the picker gives a deleted agent no name; the widget remembers it")
+    }
+
     func testOfflineIsUnreachableAndTheExtrasFailingLeaveTheirLinesOut() async {
         let offline = await load("orch", FixtureAPI(mode: .offline))
         XCTAssertEqual(offline.phase, .unreachable)
@@ -106,10 +122,12 @@ final class AgentWidgetTests: XCTestCase {
     func testEveryStateDrawsAtBothSizesAndTheStatesLookDifferent() async throws {
         var noSticker = await load("qa")
         noSticker.avatarSVG = nil
+        var longName = await load("orch")
+        longName.name = "Dineout Marketplace Frontend Dev"
         let states: [(String, AgentWidgetSnapshot)] = [
             ("working", await load("orch")), ("idle", noSticker), ("approval", await load("ios")),
             ("gone", AgentWidgetSnapshot(phase: .gone, agentId: "qa", name: "QA Agent")), ("not-chosen", AgentWidgetSnapshot(phase: .notChosen)),
-            ("unreachable", AgentWidgetSnapshot(phase: .unreachable)),
+            ("unreachable", AgentWidgetSnapshot(phase: .unreachable)), ("long-name", longName),
         ]
         var seen: [Data] = []
         for (name, snapshot) in states {

@@ -2,7 +2,7 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// An agent the One agent widget can show; the widget's configuration keeps its name so a deleted one can still be named.
+/// An agent the One agent widget can show. A deleted one comes back without a name; the widget remembers the name it last drew.
 public struct AgentEntity: AppEntity {
     public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Agent"
     public static var defaultQuery: AgentEntityQuery { AgentEntityQuery() }
@@ -154,7 +154,7 @@ public struct AgentWidgetView: View {
             VStack(alignment: .leading, spacing: 3) {
                 face(40)
                 Spacer(minLength: 0)
-                Text(snapshot.name).font(.headline).lineLimit(1)
+                name
                 status
                 if let ticket = snapshot.ticket { Text(ticket).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                 runTime.font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -163,9 +163,9 @@ public struct AgentWidgetView: View {
         } else {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    face(52)
+                    face(44)
                     Spacer(minLength: 0)
-                    Text(snapshot.name).font(.headline).lineLimit(1)
+                    name
                     status
                 }
                 .frame(width: 124, alignment: .leading)
@@ -180,6 +180,11 @@ public struct AgentWidgetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
+    }
+
+    /// The whole name, on two lines and smaller if it must: it's what tells two agent widgets apart.
+    private var name: some View {
+        Text(snapshot.name).font(.headline).lineLimit(2).minimumScaleFactor(0.7).layoutPriority(1)
     }
 
     private var status: some View {
