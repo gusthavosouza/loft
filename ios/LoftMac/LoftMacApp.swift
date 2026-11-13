@@ -126,15 +126,16 @@ final class MacNav {
 
 struct LoftCommands: Commands {
     let nav: MacNav
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Message…") { nav.picksRecipient = true }
+            Button("New Message…") { show { nav.picksRecipient = true } }
                 .keyboardShortcut("n")
         }
         CommandMenu("Go") {
             ForEach(MacSection.allCases) { s in
-                Button(s.title) { nav.section = s }
+                Button(s.title) { show { nav.section = s } }
                     .keyboardShortcut(KeyEquivalent(Character(String(s.rawValue))))
             }
             Divider()
@@ -142,6 +143,14 @@ struct LoftCommands: Commands {
                 .keyboardShortcut("[")
                 .disabled(nav.section != .issues || nav.issuePath.isEmpty)
         }
+    }
+
+    /// Goes there in the main window, opening or raising it: with only the menu bar item left, a shortcut still shows
+    /// where it went.
+    private func show(_ go: () -> Void) {
+        go()
+        openWindow(id: "main")
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
