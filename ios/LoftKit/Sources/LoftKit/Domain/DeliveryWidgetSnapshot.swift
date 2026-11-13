@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the Delivery progress widget shows (spec #462): the picked spec's title, its tickets closed out of the total,
-/// the ticket being built and its Dev, the spec PR's verdicts, and whether it runs, stalled or finished.
+/// the ticket being built and its Dev, its reviews' verdicts, and whether it runs, stalled or finished.
 public struct DeliveryWidgetSnapshot: Equatable {
     public enum Phase: Equatable {
         /// The app hasn't connected to a Loft yet.
@@ -47,7 +47,7 @@ public struct DeliveryWidgetSnapshot: Equatable {
         public var finished: Bool { self == .done || self == .merged }
     }
 
-    /// One of the spec PR's verdicts.
+    /// One of the reviews' verdicts.
     public enum Verdict: Equatable { case pending, passed, failed }
 
     public var phase: Phase
@@ -63,6 +63,7 @@ public struct DeliveryWidgetSnapshot: Equatable {
     /// "#465 One-agent widget" and the Dev building it; nil when no ticket is being built.
     public var ticket: String?
     public var dev: String?
+    /// The final Code Review; QA and Security are the ticket in review's (every ticket's once it's done).
     public var review = Verdict.pending
     public var qa = Verdict.pending
     public var security = Verdict.pending
@@ -74,7 +75,7 @@ public struct DeliveryWidgetSnapshot: Equatable {
     }
 
     /// `title` is what the widget's configuration remembers, shown when the Delivery is gone.
-    public init(key: String, title: String, deliveries: [DeliverySummary], tasks: [HBTask], pullRequests: [PullRequest]) {
+    public init(key: String, title: String, deliveries: [DeliverySummary], tasks: [HBTask]) {
         guard let d = deliveries.first(where: { Self.key($0) == key }) else {
             self.init(phase: .gone, key: key, title: title)
             return
@@ -102,9 +103,14 @@ public struct DeliveryWidgetSnapshot: Equatable {
         case "final_fixes": .failed
         default: .pending
         }
-        let labels = Set(pullRequests.first { $0.slug == d.repo && $0.number == d.pr }?.labels ?? [])
-        qa = labels.contains("qa:failed") ? .failed : labels.contains("qa:passed") || labels.contains("qa-passed") ? .passed : .pending
-        security = labels.contains("security:findings") ? .failed : labels.contains("security:passed") ? .passed : .pending
+        // Not the spec PR's labels: a ticket's pass labels stay on it for the tickets after. A ticket sent back has
+        // its verdicts cleared and reads as changes (which reviewer asked isn't kept).
+        if status.finished {
+            (qa, security) = (.passed, .passed)
+        } else if let t = counted.first(where: { ["review", "changes", "closing"].contains($0.state) }) {
+            func verdict(_ role: String) -> Verdict { t.state == "changes" ? .failed : t.verdicts?[role] == "pass" ? .passed : .pending }
+            (qa, security) = (verdict("qa"), verdict("security"))
+        }
     }
 
     /// The configuration's key for a Delivery (`SpecViews.index`'s).
@@ -118,7 +124,7 @@ public struct DeliveryWidgetSnapshot: Equatable {
 
     /// The Deliveries the picker offers, with their titles: the started ones, those still going first, then the most
     /// recently updated spec first.
-    public static func choices(_ deliveries: [DeliverySummary], tasks: [HBTask]) -> [(key: String, title: String)] {
+    public static func choices(_ deliveries: [DeliverySummary], tasks: [HBTask]) -> [(key: String, title: String, repo: String)] {
         deliveries.filter { $0.state != "planned" }
             .map { d in (d, specTask(d, in: tasks)) }
             .sorted { a, b in
@@ -126,7 +132,7 @@ public struct DeliveryWidgetSnapshot: Equatable {
                 if fa != fb { return !fa }
                 return (a.1?.updatedAt ?? .distantPast) > (b.1?.updatedAt ?? .distantPast)
             }
-            .map { d, spec in (key(d), spec.map { title(d, $0) } ?? "\(d.repo) #\(d.spec)") }
+            .map { d, spec in (key(d), spec.map { title(d, $0) } ?? "#\(d.spec)", d.repo) }
     }
 
     /// Reads the Delivery from Loft at the address the app connected to.
@@ -134,21 +140,20 @@ public struct DeliveryWidgetSnapshot: Equatable {
         guard let server = SharedServer.address else { return DeliveryWidgetSnapshot(phase: .notConnected) }
         guard let key else { return DeliveryWidgetSnapshot(phase: .notChosen) }
         let api = LiveLoftAPI(baseURL: server)
-        return await load(key: key, title: title, deliveries: api.deliverySummaries, tasks: api.tasks, pullRequests: api.pullRequests, titles: .standard)
+        return await load(key: key, title: title, deliveries: api.deliverySummaries, tasks: api.tasks, titles: .standard)
     }
 
-    /// The Deliveries are required; the issues and PRs are extras, so one failing leaves the title or the verdicts
-    /// short instead of making Loft look unreachable. `titles` remembers each spec's title it showed, since the
+    /// The Deliveries are required; the issues are an extra, so their failing leaves the title short instead of
+    /// making Loft look unreachable. `titles` remembers each spec's title it showed, since the
     /// configuration loses it once the Delivery is gone.
     static func load(key: String, title: String, deliveries: () async throws -> [DeliverySummary], tasks: () async throws -> [HBTask],
-                     pullRequests: () async throws -> [PullRequest], titles: UserDefaults? = nil) async -> DeliveryWidgetSnapshot {
+                     titles: UserDefaults? = nil) async -> DeliveryWidgetSnapshot {
         let remembered = "deliveryWidget.title.\(key)"
         let title = title.isEmpty ? titles?.string(forKey: remembered) ?? "" : title
         do {
             async let list = deliveries()
             async let issues = try? tasks()
-            async let prs = try? pullRequests()
-            let s = DeliveryWidgetSnapshot(key: key, title: title, deliveries: try await list, tasks: await issues ?? [], pullRequests: await prs ?? [])
+            let s = DeliveryWidgetSnapshot(key: key, title: title, deliveries: try await list, tasks: await issues ?? [])
             if s.phase == .ready { titles?.set(s.title, forKey: remembered) }
             return s
         } catch {

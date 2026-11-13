@@ -15,17 +15,12 @@ final class DeliveryWidgetTests: XCTestCase {
         return t
     }
 
-    private func ticket(_ n: Int, _ state: String, agent: String? = nil) -> DeliverySummary.Ticket {
-        .init(number: n, title: "Ticket \(n)", state: state, agentName: agent)
+    private func ticket(_ n: Int, _ state: String, agent: String? = nil, verdicts: [String: String]? = nil) -> DeliverySummary.Ticket {
+        .init(number: n, title: "Ticket \(n)", state: state, agentName: agent, verdicts: verdicts)
     }
 
     private func delivery(_ spec: Int, _ state: String, tickets: [DeliverySummary.Ticket] = [], pr: Int? = nil) -> DeliverySummary {
         DeliverySummary(state: state, agentName: nil, repo: "o/loft", spec: spec, specId: nil, local: false, pr: pr, current: nil, tickets: tickets)
-    }
-
-    private func pr(_ number: Int, _ labels: [String]) -> PullRequest {
-        PullRequest(id: "p\(number)", agentId: "dev", slug: "o/loft", number: number, url: "", title: "Spec", state: "open", draft: true,
-                    createdAt: nil, labels: labels)
     }
 
     func testThePickerOffersStartedDeliveriesTheRunningOnesFirstThenTheLatest() {
@@ -36,32 +31,45 @@ final class DeliveryWidgetTests: XCTestCase {
         let offered = DeliveryWidgetSnapshot.choices(ds, tasks: tasks + [spec("g", "Garden notes", nil, updated: -2000)])
         XCTAssertEqual(offered.map(\.title), ["#20 Running", "Garden notes", "#30 New done", "#10 Old done"])
         XCTAssertEqual(offered.map(\.key), ["o/loft#20", "id:g", "o/loft#30", "o/loft#10"])
+        XCTAssertEqual(offered[1].repo, "loft:garden", "the picker names each one's repo")
     }
 
-    func testARunningDeliveryShowsProgressTheTicketBeingBuiltItsDevAndTheVerdicts() {
-        let d = delivery(462, "running", tickets: [ticket(464, "closed"), ticket(465, "closed"), ticket(466, "started", agent: "Loft Dev"),
-                                                  ticket(467, "open"), ticket(9, "elsewhere")], pr: 463)
-        let s = DeliveryWidgetSnapshot(key: "o/loft#462", title: "", deliveries: [d], tasks: [spec("w", "Widgets", 462)],
-                                       pullRequests: [pr(463, ["qa:passed", "security:findings"]), pr(1, ["qa:failed"])])
+    func testARunningDeliveryShowsProgressTheTicketBeingBuiltItsDevAndTheTicketInReviewsVerdicts() {
+        let d = delivery(462, "running", tickets: [ticket(464, "closed", verdicts: ["qa": "pass", "security": "pass"]),
+                                                  ticket(465, "review", agent: "Loft Dev", verdicts: ["qa": "pending", "security": "pass"]),
+                                                  ticket(466, "started", agent: "Loft Dev"), ticket(467, "open"), ticket(9, "elsewhere")], pr: 463)
+        let s = DeliveryWidgetSnapshot(key: "o/loft#462", title: "", deliveries: [d], tasks: [spec("w", "Widgets", 462)])
         XCTAssertEqual(s.phase, .ready)
         XCTAssertEqual(s.title, "#462 Widgets")
         XCTAssertEqual(s.status, .running)
-        XCTAssertEqual(s.done, 2)
+        XCTAssertEqual(s.done, 1)
         XCTAssertEqual(s.total, 4, "a ticket built elsewhere doesn't count")
-        XCTAssertEqual(s.ticket, "#466 Ticket 466")
+        XCTAssertEqual(s.ticket, "#465 Ticket 465")
         XCTAssertEqual(s.dev, "Loft Dev")
-        XCTAssertEqual([s.review, s.qa, s.security], [.pending, .passed, .failed])
+        XCTAssertEqual([s.review, s.qa, s.security], [.pending, .pending, .passed], "the ticket in review's, not the closed one's")
         XCTAssertEqual(s.link, .issue("w"))
+    }
+
+    func testATicketSentBackReadsAsChangesAndNoneInReviewAsPending() {
+        func verdicts(_ tickets: [DeliverySummary.Ticket]) -> [DeliveryWidgetSnapshot.Verdict] {
+            let s = DeliveryWidgetSnapshot(key: "o/loft#1", title: "", deliveries: [delivery(1, "running", tickets: tickets)], tasks: [])
+            return [s.qa, s.security]
+        }
+        // Delivery clears a ticket's verdicts when it sends it back.
+        XCTAssertEqual(verdicts([ticket(2, "closed", verdicts: ["qa": "pass", "security": "pass"]), ticket(3, "changes", agent: "Dev", verdicts: [:])]),
+                       [.failed, .failed])
+        XCTAssertEqual(verdicts([ticket(2, "closed", verdicts: ["qa": "pass", "security": "pass"]), ticket(3, "started", agent: "Dev")]),
+                       [.pending, .pending], "a closed ticket's passes aren't the next one's")
     }
 
     func testFinishedStalledAndWaitingDeliveriesSaySo() {
         func status(_ d: DeliverySummary) -> DeliveryWidgetSnapshot {
-            DeliveryWidgetSnapshot(key: DeliveryWidgetSnapshot.key(d), title: "", deliveries: [d], tasks: [], pullRequests: [])
+            DeliveryWidgetSnapshot(key: DeliveryWidgetSnapshot.key(d), title: "", deliveries: [d], tasks: [])
         }
         let done = status(delivery(1, "ready", tickets: [ticket(2, "closed")]))
         XCTAssertEqual(done.status, .done)
         XCTAssertTrue(done.status.finished)
-        XCTAssertEqual(done.review, .passed)
+        XCTAssertEqual([done.review, done.qa, done.security], [.passed, .passed, .passed])
         XCTAssertNil(done.ticket)
         XCTAssertEqual(done.done, done.total)
         XCTAssertEqual(status(delivery(1, "merged")).status, .merged)
@@ -80,7 +88,7 @@ final class DeliveryWidgetTests: XCTestCase {
         var ds = [delivery(462, "running")]
         func load() async -> DeliveryWidgetSnapshot {
             await DeliveryWidgetSnapshot.load(key: "o/loft#462", title: "", deliveries: { ds }, tasks: { [self.spec("w", "Widgets", 462)] },
-                                              pullRequests: { [] }, titles: titles)
+                                              titles: titles)
         }
         _ = await load()
         ds = []
@@ -89,15 +97,15 @@ final class DeliveryWidgetTests: XCTestCase {
         XCTAssertEqual(s.title, "#462 Widgets")
     }
 
-    func testOfflineIsUnreachableAndTheExtrasFailingLeaveThemOut() async {
+    func testOfflineIsUnreachableAndTheIssuesFailingLeaveTheTitleShort() async {
         struct Down: Error {}
-        let offline = await DeliveryWidgetSnapshot.load(key: "o/loft#1", title: "#1 X", deliveries: { throw Down() }, tasks: { [] }, pullRequests: { [] })
+        let offline = await DeliveryWidgetSnapshot.load(key: "o/loft#1", title: "#1 X", deliveries: { throw Down() }, tasks: { [] })
         XCTAssertEqual(offline.phase, .unreachable)
         XCTAssertEqual(offline.title, "#1 X")
         let s = await DeliveryWidgetSnapshot.load(key: "o/loft#1", title: "", deliveries: { [self.delivery(1, "running", pr: 2)] },
-                                                  tasks: { throw Down() }, pullRequests: { throw Down() })
+                                                  tasks: { throw Down() })
         XCTAssertEqual(s.phase, .ready)
-        XCTAssertEqual(s.qa, .pending)
+        XCTAssertEqual(s.title, "#1")
     }
 
     func testATapOpensTheSpec() {
@@ -106,15 +114,15 @@ final class DeliveryWidgetTests: XCTestCase {
 
     @MainActor
     func testEveryStateDrawsAndTheStatesLookDifferent() throws {
-        let tickets = [ticket(464, "closed"), ticket(465, "closed"), ticket(466, "started", agent: "Loft Dev"), ticket(467, "open")]
+        let tickets = [ticket(464, "closed"), ticket(465, "review", agent: "Loft Dev", verdicts: ["qa": "pass", "security": "pending"]),
+                       ticket(466, "started", agent: "Loft Dev"), ticket(467, "open")]
         let tasks = [spec("w", "Widgets: Needs you with actions, One agent, Delivery progress, Talk", 462)]
-        func ready(_ state: String, _ labels: [String], all: Bool = false) -> DeliveryWidgetSnapshot {
+        func ready(_ state: String, all: Bool = false) -> DeliveryWidgetSnapshot {
             DeliveryWidgetSnapshot(key: "o/loft#462", title: "", deliveries: [delivery(462, state, tickets: all ? tickets.map { var t = $0; t.state = "closed"; return t } : tickets, pr: 463)],
-                                   tasks: tasks, pullRequests: [pr(463, labels)])
+                                   tasks: tasks)
         }
         let states: [(String, DeliveryWidgetSnapshot)] = [
-            ("running", ready("running", ["qa:passed"])), ("stalled", ready("stalled", [])),
-            ("done", ready("ready", ["qa:passed", "security:passed"], all: true)),
+            ("running", ready("running")), ("stalled", ready("stalled")), ("done", ready("ready", all: true)),
             ("gone", DeliveryWidgetSnapshot(phase: .gone, key: "o/loft#462", title: "#462 Widgets")),
             ("not-chosen", DeliveryWidgetSnapshot(phase: .notChosen)),
             ("offline", DeliveryWidgetSnapshot(phase: .unreachable, key: "o/loft#462", title: "#462 Widgets")),

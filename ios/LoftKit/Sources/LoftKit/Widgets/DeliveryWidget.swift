@@ -10,13 +10,18 @@ public struct DeliveryEntity: AppEntity {
 
     public let id: String
     public let title: String
+    /// Its repo, so two repos' specs with one number tell apart in the picker.
+    public let repo: String
 
-    public init(id: String, title: String) {
+    public init(id: String, title: String, repo: String = "") {
         self.id = id
         self.title = title
+        self.repo = repo
     }
 
-    public var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(title)") }
+    public var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(title)", subtitle: repo.isEmpty ? nil : "\(repo)")
+    }
 }
 
 /// The running and recent Deliveries, for the widget's picker.
@@ -36,7 +41,7 @@ public struct DeliveryEntityQuery: EntityQuery {
         let api = LiveLoftAPI(baseURL: server)
         async let deliveries = api.deliverySummaries()
         async let tasks = try? api.tasks()
-        return DeliveryWidgetSnapshot.choices(try await deliveries, tasks: await tasks ?? []).map { DeliveryEntity(id: $0.key, title: $0.title) }
+        return DeliveryWidgetSnapshot.choices(try await deliveries, tasks: await tasks ?? []).map { DeliveryEntity(id: $0.key, title: $0.title, repo: $0.repo) }
     }
 }
 
@@ -74,7 +79,7 @@ struct DeliveryProvider: AppIntentTimelineProvider {
 }
 
 /// One spec's Delivery the user picks: tickets closed out of the total, the ticket being built and its Dev, and the
-/// spec PR's verdicts (spec #462). Medium, on the iPhone and the Mac; a tap opens the spec.
+/// reviews' verdicts (spec #462). Medium, on the iPhone and the Mac; a tap opens the spec.
 public struct DeliveryWidget: Widget {
     public init() {}
 

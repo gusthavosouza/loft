@@ -8,16 +8,19 @@ import XCTest
 final class DeliveryWidgetRenderTests: XCTestCase {
     @MainActor
     func testEveryStateDrawsAndTheStatesLookDifferent() throws {
-        func t(_ n: Int, _ state: String, agent: String? = nil) -> DeliverySummary.Ticket { .init(number: n, title: "Ticket \(n)", state: state, agentName: agent) }
-        func ready(_ state: String, _ tickets: [DeliverySummary.Ticket], _ labels: [String]) -> DeliveryWidgetSnapshot {
+        func t(_ n: Int, _ state: String, agent: String? = nil, verdicts: [String: String]? = nil) -> DeliverySummary.Ticket {
+            .init(number: n, title: "Ticket \(n)", state: state, agentName: agent, verdicts: verdicts)
+        }
+        func ready(_ state: String, _ tickets: [DeliverySummary.Ticket]) -> DeliveryWidgetSnapshot {
             let d = DeliverySummary(state: state, agentName: nil, repo: "o/loft", spec: 462, specId: nil, local: false, pr: 463, current: nil, tickets: tickets)
-            let pr = PullRequest(id: "p", agentId: "dev", slug: "o/loft", number: 463, url: "", title: "", state: "open", draft: true, createdAt: nil, labels: labels)
-            return DeliveryWidgetSnapshot(key: "o/loft#462", title: "#462 Widgets", deliveries: [d], tasks: [], pullRequests: [pr])
+            return DeliveryWidgetSnapshot(key: "o/loft#462", title: "#462 Widgets", deliveries: [d], tasks: [])
         }
         let states: [(String, DeliveryWidgetSnapshot)] = [
-            ("running", ready("running", [t(464, "closed"), t(465, "closed"), t(466, "started", agent: "Loft Dev"), t(467, "open")], ["qa:passed"])),
-            ("stalled", ready("stalled", [t(464, "closed"), t(465, "open")], [])),
-            ("done", ready("ready", [t(464, "closed"), t(465, "closed")], ["qa:passed", "security:passed"])),
+            ("running", ready("running", [t(464, "closed"), t(465, "review", agent: "Loft Dev", verdicts: ["qa": "pass", "security": "pending"]),
+                                          t(466, "started", agent: "Loft Dev"), t(467, "open")])),
+            ("changes", ready("running", [t(464, "closed"), t(465, "changes", agent: "Loft Dev", verdicts: [:])])),
+            ("stalled", ready("stalled", [t(464, "closed"), t(465, "open")])),
+            ("done", ready("ready", [t(464, "closed"), t(465, "closed")])),
             ("not-chosen", DeliveryWidgetSnapshot(phase: .notChosen)),
         ]
         var seen: [Data] = []
