@@ -210,10 +210,11 @@ struct MainWindow: View {
     var body: some View {
         @Bindable var nav = nav
         NavigationSplitView {
-            List(selection: Binding(get: { nav.section }, set: { if let s = $0 { nav.section = s } })) {
+            List(selection: $nav.section) {
                 ForEach(MacSection.allCases) { s in
-                    Label(s.title, systemImage: s.symbol).tag(s).accessibilityIdentifier("section-\(s.title)")
+                    Label(s.title, systemImage: s.symbol).accessibilityIdentifier("section-\(s.title)")
                         .badge(s == .needsYou ? store.needsYou?.count ?? 0 : 0)
+                        .tag(s)
                 }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
