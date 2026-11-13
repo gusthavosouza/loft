@@ -34,6 +34,14 @@ public enum PushDestination: Equatable {
         return host == "github.com" || host == loftHost?.lowercased()
     }
 
+    /// The relay portal page Sign in opens: only `https` on the relay's own host (`relay_url`), since the link comes
+    /// from the server's reply. Nil otherwise.
+    public static func portal(_ link: String?, relay: String) -> URL? {
+        guard let url = link.flatMap(URL.init(string:)), url.scheme?.lowercased() == "https", let host = url.host()?.lowercased(),
+              host == URL(string: relay)?.host()?.lowercased() else { return nil }
+        return url
+    }
+
     /// The "Needs you" item a notification is about, so a push and a local notification for the same item show once.
     public static func itemId(_ info: [AnyHashable: Any]) -> String? { info["needs_you_id"] as? String }
 }

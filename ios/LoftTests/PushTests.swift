@@ -14,6 +14,43 @@ final class PushTests: XCTestCase {
         XCTAssertNil(PushDestination.from([:]))
     }
 
+    /// A Mac notification's userInfo (MacAlerts: `needs_you_id` plus `NeedsYouAlerts.target`) routes back to its item.
+    func testAMacNotificationOpensItsItem() {
+        func agent(_ id: String) -> NeedsYouItem.AgentRef { .init(id: id, name: "Agent") }
+        func item(_ type: String, agent a: String?, open: NeedsYouAction.Target? = nil) -> NeedsYouItem {
+            NeedsYouItem(id: "\(type):1", type: type, urgency: 2, agent: a.map(agent), taskId: nil, title: "t", reason: "", text: "",
+                         createdAt: nil, ageSeconds: nil, links: nil,
+                         actions: open.map { [NeedsYouAction(kind: "open", label: "Open", target: $0)] } ?? [], project: nil, pr: nil)
+        }
+        func info(_ i: NeedsYouItem) -> [AnyHashable: Any] {
+            var info: [String: Any] = ["needs_you_id": i.id]
+            if let t = NeedsYouAlerts.target(of: i) { info["target"] = t }
+            return info
+        }
+        let host = "mac.tail1.ts.net"
+        XCTAssertEqual(PushDestination.from(info(item("question", agent: "be")), loftHost: host), .chat(agentId: "be"))
+        XCTAssertEqual(PushDestination.from(info(item("permission", agent: nil, open: .init(screen: "chat", agentId: "ios"))), loftHost: host),
+                       .chat(agentId: "ios"))
+        let pr = "https://github.com/o/r/pull/7"
+        XCTAssertEqual(PushDestination.from(info(item("pr_ready", agent: nil, open: .init(url: pr))), loftHost: host), .url(URL(string: pr)!))
+        XCTAssertNil(PushDestination.from(info(item("pr_ready", agent: nil, open: .init(url: "https://evil.example/x"))), loftHost: host),
+                     "an untrusted link only opens the app")
+        XCTAssertEqual(PushDestination.from(info(item("pr_ready", agent: nil)), loftHost: host), .needsYou)
+    }
+
+    /// Sign in on the Mac's Settings › Push opens the relay's portal only over https on the relay's own host.
+    func testThePortalLinkOpensOnlyOnTheRelay() {
+        let relay = "https://relay.example.com"
+        XCTAssertEqual(PushDestination.portal("https://relay.example.com/connect?code=1", relay: relay), URL(string: "https://relay.example.com/connect?code=1"))
+        XCTAssertEqual(PushDestination.portal("https://Relay.Example.com/c", relay: relay), URL(string: "https://Relay.Example.com/c"), "hosts have no case")
+        for link in ["http://relay.example.com/connect", "https://evil.example/connect", "https://relay.example.com.evil.example/c",
+                     "javascript:alert(1)", "file:///etc/passwd", "relay.example.com/connect", ""] {
+            XCTAssertNil(PushDestination.portal(link, relay: relay), link)
+        }
+        XCTAssertNil(PushDestination.portal(nil, relay: relay))
+        XCTAssertNil(PushDestination.portal("https://relay.example.com/c", relay: ""), "no relay set up: nothing opens")
+    }
+
     func testAPushLinkOpensOnlyOnGitHubOrTheConnectedLoft() {
         let open = { (url: String, host: String?) in PushDestination.from(["type": "delivery_done", "target": ["url": url]], loftHost: host) }
         for url in ["https://github.com/o/r/pull/1", "https://github.com/o/r/issues/40", "https://GitHub.com/o/r/pull/1"] {

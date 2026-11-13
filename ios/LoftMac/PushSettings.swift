@@ -17,7 +17,7 @@ struct PushSettings: View {
     @State private var picking = false
     @State private var busy = false
     @State private var message: (ok: Bool, text: String)?
-    @State private var portalLink: String?
+    @State private var portalLink: URL?
 
     private static let chip = ["own_key": "Your own key", "relay": "Using the Loft relay", "none": "Sign in to get push"]
     private static let whereTo = ["own_key": "Pushes go straight to Apple with your own key.",
@@ -102,7 +102,7 @@ struct PushSettings: View {
                             } else {
                                 Text("Waiting for you to allow it on the portal.").font(.caption).foregroundStyle(.secondary)
                             }
-                            if let l = portalLink.flatMap(URL.init(string:)) { Link("Open the page again", destination: l).font(.caption) }
+                            if let l = portalLink { Link("Open the page again", destination: l).font(.caption) }
                         }
                     }
                 }
@@ -237,8 +237,8 @@ struct PushSettings: View {
         message = nil
         do {
             let r = try await store.pushSignIn()
-            portalLink = r["url"]?.stringValue
-            if let u = portalLink.flatMap(URL.init(string:)) { openURL(u) }
+            portalLink = PushDestination.portal(r["url"]?.stringValue, relay: s("relay_url"))
+            if let u = portalLink { openURL(u) } else { message = (false, "The relay sent a sign-in link that isn't on its own https address.") }
         } catch { message = (false, APIError.from(error).title) }
         // A relay without a portal is remembered: Sign in goes away.
         await load()
