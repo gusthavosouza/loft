@@ -120,6 +120,9 @@ final class MacNav {
         case .needsYou: section = .needsYou
         case .agents: section = .agents
         case .agent(let id): openChat(id)
+        case .issue(let id):
+            section = .issues
+            issuePath = [id]
         }
     }
 }

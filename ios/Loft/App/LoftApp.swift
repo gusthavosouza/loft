@@ -120,6 +120,7 @@ final class Router {
         switch link {
         case .needsYou: open(.needsYou)
         case .agent(let id): open(.chat(agentId: id))
+        case .issue(let id): open(.task(taskId: id))
         case .agents:
             composer = nil
             tab = .agents

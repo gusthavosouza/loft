@@ -9,6 +9,7 @@ struct LoftWidgetsMain: WidgetBundle {
         LoftOverviewWidget()
         NeedsYouWidget()
         AgentWidget()
+        DeliveryWidget()
     }
 }
 
