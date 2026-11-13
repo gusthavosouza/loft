@@ -237,7 +237,7 @@ struct IssuePage: View {
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                     }
-                    if let g = t.github, let url = URL(string: g.url), url.scheme == "https" {
+                    if let g = t.github, let url = PushDestination.link(g.url, loftHost: store.api?.baseURL.host()) {
                         Link("Open on GitHub", destination: url).foregroundStyle(Theme.accent).accessibilityIdentifier("issueGitHubLink")
                     }
                     if !t.description.isEmpty {
