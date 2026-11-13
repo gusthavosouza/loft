@@ -34,6 +34,7 @@ struct SettingsSection: View {
                 .accessibilityIdentifier("appearancePicker")
                 note("Dark matches Loft on the web. System follows this Mac.")
             }
+            QuickSearchSettings()
             Section { AppleIntelligenceSection().toggleStyle(.checkbox).padding(.vertical, 4) }
             if saved != nil {
                 if !pendingRestart.isEmpty || restarting { restartBanner }
