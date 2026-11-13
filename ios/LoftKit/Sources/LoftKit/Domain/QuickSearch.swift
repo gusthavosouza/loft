@@ -74,8 +74,8 @@ public enum QuickSearch {
     }
 
     /// How well a lowercased query matches, lower is better, nil for no match: the number exactly ("459", "#459" or
-    /// "loft#459"), the whole title, the start of the title, the start of a word, anywhere in it, then its letters in
-    /// order.
+    /// "loft#459"), the whole title, the start of the title, the start of a word, anywhere in it, then the words' first
+    /// letters in order.
     static func score(_ q: String, title: String, number: String? = nil) -> Int? {
         if let number, "#" + q == number || q.hasSuffix(number) { return 0 }
         let t = title.lowercased()
@@ -84,8 +84,12 @@ public enum QuickSearch {
         let words = t.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
         if words.contains(where: { $0.hasPrefix(q) }) { return 3 }
         if t.contains(q) { return 4 }
-        var rest = Substring(q.filter { !$0.isWhitespace })
-        for c in t where c == rest.first { rest = rest.dropFirst() }
+        // Letters in order only on the words' first letters ("lmq" for Loft Mobile QA), and from three letters: across
+        // whole titles, short queries match nearly every issue.
+        let letters = q.filter { !$0.isWhitespace }
+        guard letters.count >= 3 else { return nil }
+        var rest = Substring(letters)
+        for w in words where w.first == rest.first { rest = rest.dropFirst() }
         return rest.isEmpty ? 5 : nil
     }
 }

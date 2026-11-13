@@ -33,15 +33,22 @@ final class QuickSearchTests: XCTestCase {
         XCTAssertNil(r.first { $0.target == "i" }?.number)
     }
 
-    func testRankingWholeTitleThenStartThenWordThenAnywhereThenLettersInOrder() {
+    func testRankingWholeTitleThenStartThenWordThenAnywhereThenInitials() {
         XCTAssertEqual(QuickSearch.score("orchestrator", title: "Orchestrator"), 1)
         XCTAssertEqual(QuickSearch.score("orch", title: "Orchestrator"), 2)
         XCTAssertEqual(QuickSearch.score("qa", title: "Loft Mobile QA"), 3)
         XCTAssertEqual(QuickSearch.score("bile", title: "Loft Mobile QA"), 4)
         XCTAssertEqual(QuickSearch.score("lmq", title: "Loft Mobile QA"), 5)
         XCTAssertNil(QuickSearch.score("zz", title: "Loft Mobile QA"))
-        XCTAssertEqual(search("lo").map(\.target), ["dev", "qa", "/simulator"], "Both start with it, by name; then letters in order")
+        XCTAssertEqual(search("lo").map(\.target), ["dev", "qa"], "Both start with it, by name")
         XCTAssertEqual(search("qa").first?.target, "qa")
+    }
+
+    func testLettersInOrderOnlyOnWordInitialsFromThreeLetters() {
+        XCTAssertNil(QuickSearch.score("needs", title: "Implement backend endpoints"), "Not letters spread inside words")
+        XCTAssertNil(QuickSearch.score("lm", title: "Loft Mobile QA"), "Too short")
+        XCTAssertEqual(QuickSearch.score("lmq", title: "Loft Mobile QA"), 5)
+        XCTAssertEqual(QuickSearch.score("l mq", title: "Loft Mobile QA"), 5)
     }
 
     func testANumberFindsItsIssueFirst() {

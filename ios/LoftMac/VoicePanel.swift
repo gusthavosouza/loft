@@ -52,7 +52,7 @@ final class VoicePanelController {
         self.store = store
         self.nav = nav
         self.voice = voice
-        hotKey = GlobalHotKey(id: 2) { [weak self] in self?.toggle() }
+        hotKey = GlobalHotKey(id: GlobalHotKey.voicePanel) { [weak self] in self?.toggle() }
         applyShortcut()
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyShortcut() }
@@ -342,6 +342,7 @@ struct VoicePanelSettings: View {
                 ForEach(MacShortcut.allCases) { Text($0.label).tag($0.rawValue) }
             }
             .accessibilityIdentifier("voicePanelShortcutPicker")
+            ShortcutFailure(id: GlobalHotKey.voicePanel)
             Text("Opens a floating panel from any app that listens, has Loft tidy up what you said, and sends it to the agent you pick. Also in the menu bar. Pick a different shortcut from quick search's.")
                 .font(.caption).foregroundStyle(.secondary)
         }

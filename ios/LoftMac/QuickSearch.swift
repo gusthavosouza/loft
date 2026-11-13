@@ -34,9 +34,21 @@ enum MacShortcut: String, CaseIterable, Identifiable {
     }
 }
 
+/// The shortcuts that couldn't be registered, by hot key id: Loft's other shortcut has it, or macOS doesn't allow it.
+/// Settings shows it under the picker. Another app holding the same keys isn't an error to Carbon: only one of the apps
+/// gets the presses.
+@MainActor
+@Observable
+final class HotKeyFailures {
+    static let shared = HotKeyFailures()
+    var byID: [UInt32: MacShortcut] = [:]
+}
+
 /// A system-wide shortcut through Carbon's hot keys: it works from any app and needs no Accessibility permission.
 /// Each one has its own `id`, and passes the others' presses on.
 final class GlobalHotKey {
+    static let quickSearch: UInt32 = 1, voicePanel: UInt32 = 2
+
     private var ref: EventHotKeyRef?
     private var handler: EventHandlerRef?
     private let id: UInt32
@@ -58,12 +70,18 @@ final class GlobalHotKey {
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handler)
     }
 
+    @MainActor
     func set(_ shortcut: MacShortcut) {
         if let ref { UnregisterEventHotKey(ref) }
         ref = nil
+        HotKeyFailures.shared.byID[id] = nil
         guard let modifiers = shortcut.modifiers else { return }
-        RegisterEventHotKey(UInt32(kVK_Space), modifiers, EventHotKeyID(signature: OSType(0x4C_4F_46_54), id: id),
-                            GetApplicationEventTarget(), 0, &ref)
+        let status = RegisterEventHotKey(UInt32(kVK_Space), modifiers, EventHotKeyID(signature: OSType(0x4C_4F_46_54), id: id),
+                                         GetApplicationEventTarget(), 0, &ref)
+        if status != noErr {
+            ref = nil
+            HotKeyFailures.shared.byID[id] = shortcut
+        }
     }
 }
 
@@ -112,6 +130,16 @@ final class QuickSearchModel {
     var results: [QuickSearch.Result] {
         QuickSearch.results(query, agents: store.agents, tasks: store.tasks, deliveries: Array(store.deliverySummaries.values))
     }
+
+    /// Why only pages can be found: Loft isn't connected, or hasn't loaded its agents and issues yet.
+    var unavailable: String? {
+        guard store.agents.isEmpty && store.tasks.isEmpty else { return nil }
+        switch store.connection {
+        case .connected, .polling: return nil
+        case .connecting: return "Loading Loft…"
+        case .notConfigured, .reconnecting: return "Not connected to Loft"
+        }
+    }
 }
 
 /// Owns the shortcut and the panel, and opens the picked result in the app or the browser.
@@ -128,7 +156,7 @@ final class QuickSearchController {
     init(store: LoftStore, nav: MacNav) {
         model = QuickSearchModel(store: store)
         self.nav = nav
-        hotKey = GlobalHotKey(id: 1) { [weak self] in self?.toggle() }
+        hotKey = GlobalHotKey(id: GlobalHotKey.quickSearch) { [weak self] in self?.toggle() }
         applyShortcut()
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyShortcut() }
@@ -221,6 +249,8 @@ struct QuickSearchView: View {
 
     var body: some View {
         let results = model.results
+        let typed = !model.query.trimmingCharacters(in: .whitespaces).isEmpty
+        let note = !typed ? nil : model.unavailable.map { "\($0): only pages are searched" } ?? (results.isEmpty ? "Nothing matches" : nil)
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").font(.system(size: 20)).foregroundStyle(WebTheme.fg3)
@@ -232,6 +262,11 @@ struct QuickSearchView: View {
                     .accessibilityIdentifier("quickSearchField")
             }
             .padding(14)
+            if let note {
+                Divider()
+                Text(note).foregroundStyle(WebTheme.fg3).padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("quickSearchNote")
+            }
             if !results.isEmpty {
                 Divider()
                 ScrollViewReader { proxy in
@@ -256,9 +291,6 @@ struct QuickSearchView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-            } else if !model.query.trimmingCharacters(in: .whitespaces).isEmpty {
-                Divider()
-                Text("Nothing matches").foregroundStyle(WebTheme.fg3).padding(14).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .background(WebTheme.canvas, in: RoundedRectangle(cornerRadius: 14))
@@ -311,13 +343,27 @@ struct QuickSearchSettings: View {
                 ForEach(MacShortcut.allCases) { Text($0.label).tag($0.rawValue) }
             }
             .accessibilityIdentifier("quickSearchShortcutPicker")
+            ShortcutFailure(id: GlobalHotKey.quickSearch)
             Picker("Open results in", selection: $opensIn) {
                 Text("Mac app").tag("app")
                 Text("Browser").tag("browser")
             }
             .pickerStyle(.segmented)
-            Text("Finds agents, issues, tickets and specs from any app. ↵ opens, ⌘↵ opens an agent's chat, ⌥↵ opens in the other place. Pages only the web has always open in the browser.")
+            Text("Finds agents, issues, tickets and specs from any app. ↵ opens, ⌘↵ opens an agent's chat, ⌥↵ opens in the other place. Pages only the web has always open in the browser. If the shortcut does nothing, another app may use it too: pick another.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// "⌥Space couldn't be set up…" under a shortcut picker, when it couldn't be registered.
+struct ShortcutFailure: View {
+    let id: UInt32
+
+    var body: some View {
+        if let failed = HotKeyFailures.shared.byID[id] {
+            Text("\(failed.label) couldn't be set up: Loft's other shortcut may use it. Pick another.")
+                .font(.caption).foregroundStyle(.red)
+                .accessibilityIdentifier("shortcutFailure")
         }
     }
 }
