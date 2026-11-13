@@ -211,6 +211,7 @@ It's always signed with your team, even for Debug, because its entitlements need
   ```
 - *First launch:* it asks for the address (this Mac by default), checks Loft answers there and opens the agents.
 - *Quick search:* ⌥Space from any app opens a floating search over agents, issues, tickets, specs and Loft's pages. ↵ opens the result, ⌘↵ an agent's chat, ⌥↵ the browser instead (or the app, when Settings › Quick search opens results in the browser). Change the shortcut or turn it off there.
+- *Voice panel:* ⇧⌥Space from any app, or Talk in the menu bar, opens a small floating panel that starts listening to the open chat's agent (or the last one you talked to). ↵ (Done) has Loft tidy it up, the on-device model may offer "Send to …?", the To menu changes who gets it, and ↵ sends. Esc or × stops and sends nothing. Settings › Voice panel changes the shortcut. Screenshots: `Loft -ui-testing -render-voice-panel <listening|cleaning|review|sending|failed> <file.png>` (Debug).
 - *TestFlight:* the same script with `--mac`. Create the Mac app in App Store Connect once (Apps → + → New App, platform macOS, bundle id `LOFT_BUNDLE_ID.mac`), then:
 
   ```sh

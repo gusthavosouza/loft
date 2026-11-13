@@ -3,14 +3,14 @@ import Carbon.HIToolbox
 import LoftKit
 import SwiftUI
 
-/// The quick search shortcuts Settings offers, ⌥Space by default.
-enum QuickSearchShortcut: String, CaseIterable, Identifiable {
+/// The global shortcuts Settings offers for quick search (⌥Space by default) and the voice panel (⇧⌥Space).
+enum MacShortcut: String, CaseIterable, Identifiable {
     case optionSpace = "option-space", shiftOptionSpace = "shift-option-space", optionCommandSpace = "option-command-space",
          controlOptionSpace = "control-option-space", off
 
     var id: String { rawValue }
 
-    init(stored: String?) { self = stored.flatMap(Self.init(rawValue:)) ?? .optionSpace }
+    init(stored: String?, default fallback: MacShortcut = .optionSpace) { self = stored.flatMap(Self.init(rawValue:)) ?? fallback }
 
     var label: String {
         switch self {
@@ -35,27 +35,34 @@ enum QuickSearchShortcut: String, CaseIterable, Identifiable {
 }
 
 /// A system-wide shortcut through Carbon's hot keys: it works from any app and needs no Accessibility permission.
-private final class GlobalHotKey {
+/// Each one has its own `id`, and passes the others' presses on.
+final class GlobalHotKey {
     private var ref: EventHotKeyRef?
     private var handler: EventHandlerRef?
+    private let id: UInt32
     private let action: () -> Void
 
-    init(action: @escaping () -> Void) {
+    init(id: UInt32, action: @escaping () -> Void) {
+        self.id = id
         self.action = action
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, me in
-            guard let me else { return noErr }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, me in
+            guard let event, let me else { return OSStatus(eventNotHandledErr) }
             let hotKey = Unmanaged<GlobalHotKey>.fromOpaque(me).takeUnretainedValue()
+            var pressed = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &pressed)
+            guard pressed.id == hotKey.id else { return OSStatus(eventNotHandledErr) }
             DispatchQueue.main.async { hotKey.action() }
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handler)
     }
 
-    func set(_ shortcut: QuickSearchShortcut) {
+    func set(_ shortcut: MacShortcut) {
         if let ref { UnregisterEventHotKey(ref) }
         ref = nil
         guard let modifiers = shortcut.modifiers else { return }
-        RegisterEventHotKey(UInt32(kVK_Space), modifiers, EventHotKeyID(signature: OSType(0x4C_4F_46_54), id: 1),
+        RegisterEventHotKey(UInt32(kVK_Space), modifiers, EventHotKeyID(signature: OSType(0x4C_4F_46_54), id: id),
                             GetApplicationEventTarget(), 0, &ref)
     }
 }
@@ -116,12 +123,12 @@ final class QuickSearchController {
     var showWindow: (() -> Void)?
     private var panel: QuickSearchPanel?
     private var hotKey: GlobalHotKey!
-    private var shortcut: QuickSearchShortcut?
+    private var shortcut: MacShortcut?
 
     init(store: LoftStore, nav: MacNav) {
         model = QuickSearchModel(store: store)
         self.nav = nav
-        hotKey = GlobalHotKey { [weak self] in self?.toggle() }
+        hotKey = GlobalHotKey(id: 1) { [weak self] in self?.toggle() }
         applyShortcut()
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyShortcut() }
@@ -136,7 +143,7 @@ final class QuickSearchController {
     }
 
     private func applyShortcut() {
-        let s = QuickSearchShortcut(stored: UserDefaults.standard.string(forKey: Prefs.quickSearchShortcut))
+        let s = MacShortcut(stored: UserDefaults.standard.string(forKey: Prefs.quickSearchShortcut))
         guard s != shortcut else { return }
         shortcut = s
         hotKey.set(s)
@@ -295,13 +302,13 @@ struct QuickSearchView: View {
 
 /// Settings › Quick search: the shortcut, or none, and where Enter opens a result.
 struct QuickSearchSettings: View {
-    @AppStorage(Prefs.quickSearchShortcut) private var shortcut = QuickSearchShortcut.optionSpace.rawValue
+    @AppStorage(Prefs.quickSearchShortcut) private var shortcut = MacShortcut.optionSpace.rawValue
     @AppStorage(Prefs.quickSearchOpensIn) private var opensIn = "app"
 
     var body: some View {
         Section("Quick search") {
             Picker("Shortcut", selection: $shortcut) {
-                ForEach(QuickSearchShortcut.allCases) { Text($0.label).tag($0.rawValue) }
+                ForEach(MacShortcut.allCases) { Text($0.label).tag($0.rawValue) }
             }
             .accessibilityIdentifier("quickSearchShortcutPicker")
             Picker("Open results in", selection: $opensIn) {

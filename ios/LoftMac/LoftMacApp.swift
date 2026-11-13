@@ -9,6 +9,7 @@ struct LoftMacApp: App {
     @State private var alerts: MacAlerts
     @State private var voice: VoiceSession
     @State private var quickSearch: QuickSearchController
+    @State private var voicePanel: VoicePanelController
 
     init() {
         Prefs.registerDefaults()
@@ -19,7 +20,9 @@ struct LoftMacApp: App {
         let nav = MacNav()
         _nav = State(initialValue: nav)
         _alerts = State(initialValue: MacAlerts(store: store, nav: nav))
-        _voice = State(initialValue: VoiceSession(store: store))
+        let voice = VoiceSession(store: store)
+        _voice = State(initialValue: voice)
+        _voicePanel = State(initialValue: VoicePanelController(store: store, nav: nav, voice: voice))
         _quickSearch = State(initialValue: QuickSearchController(store: store, nav: nav))
     }
 
@@ -62,7 +65,7 @@ struct LoftMacApp: App {
         .defaultSize(width: 1400, height: 860)
         .commands { LoftCommands(nav: nav) }
 
-        MenuBarExtra { MenuBarContent().tint(Theme.accent).environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts, quickSearch: quickSearch).environment(store) }
+        MenuBarExtra { MenuBarContent(voicePanel: voicePanel).tint(Theme.accent).environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts, quickSearch: quickSearch).environment(store) }
             .menuBarExtraStyle(.window)
 
         Settings {

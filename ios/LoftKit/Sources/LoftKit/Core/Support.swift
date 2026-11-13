@@ -123,8 +123,10 @@ public enum Prefs {
     public static let aiShortSpoken = "aiShortSpoken"
     /// One-line summaries and suggested replies in "Needs you".
     public static let aiNeedsYou = "aiNeedsYou"
-    /// The Mac's quick search shortcut (`QuickSearchShortcut`'s raw value; "off" turns it off).
+    /// The Mac's quick search shortcut (`MacShortcut`'s raw value; "off" turns it off).
     public static let quickSearchShortcut = "quickSearchShortcut"
+    /// The Mac's voice panel shortcut (`MacShortcut`'s raw value; "off" turns it off).
+    public static let voicePanelShortcut = "voicePanelShortcut"
     /// Where Enter opens a quick search result on the Mac: "app" or "browser" (⌥Enter opens it in the other).
     public static let quickSearchOpensIn = "quickSearchOpensIn"
     /// When the app was last in front: the digest covers what happened since.
@@ -167,6 +169,7 @@ public enum Prefs {
             aiChatReplies: true,
             aiExplain: true,
             quickSearchShortcut: "option-space",
+            voicePanelShortcut: "shift-option-space",
             quickSearchOpensIn: "app",
         ])
     }
