@@ -62,6 +62,39 @@ final class NeedsYouWidgetTests: XCTestCase {
         XCTAssertEqual(after.needsCount, count)
     }
 
+    func testTheWidgetsReloadWhetherTheRequestWorksOrFails() async throws {
+        let loaded = await load(FixtureAPI())
+        let p = try XCTUnwrap(loaded.items.first { $0.approve != nil })
+        let intent = NeedsYouDecisionIntent(try XCTUnwrap(p.approve))
+        var reloads = 0
+        try await intent.send(FixtureAPI().needsYouRequest) { reloads += 1 }
+        XCTAssertEqual(reloads, 1)
+        struct AnsweredElsewhere: Error {}
+        do {
+            try await intent.send({ _, _, _ in throw AnsweredElsewhere() }) { reloads += 1 }
+            XCTFail("a failed request still throws")
+        } catch {}
+        XCTAssertEqual(reloads, 2, "a failed request reloads too, so a stale item drops off")
+    }
+
+    @MainActor
+    func testTheAppReloadsTheWidgetsWhenNeedsYouChanges() async throws {
+        let store = LoftStore(api: FixtureAPI(), cache: SnapshotStore(url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        var reloads = 0
+        store.reloadWidgets = { reloads += 1 }
+        store.activate()
+        for _ in 0..<100 where store.connection != .connected || store.needsYou == nil { try await Task.sleep(for: .milliseconds(50)) }
+        defer { store.deactivate() }
+        let first = reloads
+        XCTAssertGreaterThan(first, 0, "the first list reaches the widgets")
+        await store.refreshNeedsYou()
+        XCTAssertEqual(reloads, first, "an unchanged list doesn't reload them")
+        let restart = try XCTUnwrap(store.needsYou?.items.first { $0.type == "stuck" }?.actions.first { $0.kind == "restart" })
+        let done = try await store.perform(restart)
+        XCTAssertTrue(done)
+        XCTAssertEqual(reloads, first + 1, "an item answered in the app leaves the widget")
+    }
+
     func testAFailedRequestThrowsSoTheWidgetKeepsTheItem() async throws {
         let loaded = await load(FixtureAPI())
         let p = try XCTUnwrap(loaded.items.first { $0.deny != nil })

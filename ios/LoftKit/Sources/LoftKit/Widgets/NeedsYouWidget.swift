@@ -23,10 +23,15 @@ public struct NeedsYouDecisionIntent: AppIntent {
 
     public func perform() async throws -> some IntentResult {
         guard let server = SharedServer.address else { return .result() }
-        try await send(LiveLoftAPI(baseURL: server).needsYouRequest)
-        // The overview widget counts the same items.
-        WidgetCenter.shared.reloadAllTimelines()
+        try await send(LiveLoftAPI(baseURL: server).needsYouRequest) { WidgetCenter.shared.reloadAllTimelines() }
         return .result()
+    }
+
+    /// Sends the action, then reloads the widgets (the overview counts the same items) even when it failed: a request
+    /// answered elsewhere drops off instead of keeping buttons that do nothing, and an offline Loft shows as offline.
+    func send(_ request: (String, String, JSONValue?) async throws -> Void, reload: () -> Void) async throws {
+        defer { reload() }
+        try await send(request)
     }
 
     /// Sends the action through `request` (the API's `needsYouRequest`).
@@ -124,7 +129,8 @@ public struct NeedsYouWidgetView: View {
                     // What Approve runs, on lines of its own: `subjectLimit` characters wrap to at most three (the title names the agent).
                     Text(item.summary).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(3)
                 } else {
-                    Text([item.agentName, item.summary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                    // A permission's title already names the agent.
+                    Text([item.deny == nil ? item.agentName : nil, item.summary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
@@ -155,7 +161,7 @@ private struct NeedsYouCountView: View {
     var body: some View {
         let count = snapshot.phase == .ready ? "\(snapshot.needsCount)" : "–"
         let words = switch snapshot.phase {
-        case .ready: "\(count) need you"
+        case .ready: snapshot.needsCount == 1 ? "1 needs you" : "\(count) need you"
         case .notConnected: "Not connected"
         case .unreachable: "Can't reach Loft"
         }
