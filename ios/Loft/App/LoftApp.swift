@@ -60,6 +60,13 @@ struct LoftApp: App {
                 // `loft://task/<id>`: from a message, a note or another app.
                 .onOpenURL { url in
                     if let id = TaskLink.id(from: url) { router.open(.task(taskId: id)) }
+                    // The Talk widget or control: start listening with whoever you talked to last. A link they didn't
+                    // sign (another app, a web page) or no one to talk to yet: the Overview asking who, mic off.
+                    else if TalkKey.signs(url, key: TalkKey.current),
+                            let id = TalkRecipients.starter(lastAgentId: UserDefaults.standard.string(forKey: "voiceLastAgent"),
+                                                            orchestratorId: store.orchestratorId, agents: store.agents) {
+                        Task { await voice.start(agentId: id) }
+                    }
                     // A tap on a widget.
                     else if let link = DeepLink(url: url) { router.openLink(link) }
                 }
@@ -100,6 +107,8 @@ final class Router {
     var tasksPath = NavigationPath()
     var chatPath = NavigationPath()
     var composer: Composer?
+    /// The Overview's Talk button asks who to talk to (a Talk link with no one to start with).
+    var picksTalk = false
 
     enum Composer: Identifiable {
         case newTask(agentId: String?, parentId: String?)
@@ -119,11 +128,22 @@ final class Router {
     func openLink(_ link: DeepLink) {
         switch link {
         case .needsYou: open(.needsYou)
+        case .needsYouItem(let id):
+            composer = nil
+            tab = .overview
+            overviewPath = NavigationPath()
+            overviewPath.append(NeedsYouRoute(focus: id))
         case .agent(let id): open(.chat(agentId: id))
+        case .issue(let id): open(.task(taskId: id))
         case .agents:
             composer = nil
             tab = .agents
             agentsPath = NavigationPath()
+        case .talk:
+            composer = nil
+            tab = .overview
+            overviewPath = NavigationPath()
+            picksTalk = true
         }
     }
 
@@ -239,7 +259,7 @@ extension View {
             .navigationDestination(for: ChatRoute.self) { ChatView(agentId: $0.agentId, draft: $0.draft, dictate: $0.dictate) }
             .navigationDestination(for: ActivityRoute.self) { _ in ActivityListView() }
             .navigationDestination(for: SettingsRoute.self) { _ in SettingsView() }
-            .navigationDestination(for: NeedsYouRoute.self) { _ in NeedsYouListView() }
+            .navigationDestination(for: NeedsYouRoute.self) { NeedsYouListView(focus: $0.focus) }
     }
 
     /// The global create button, in every tab's navigation bar.
