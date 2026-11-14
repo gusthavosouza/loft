@@ -1,3 +1,4 @@
+import CoreSpotlight
 import LoftKit
 import SwiftUI
 
@@ -11,7 +12,7 @@ struct LoftMacApp: App {
     @State private var voice: VoiceSession
     @State private var quickSearch: QuickSearchController
     @State private var voicePanel: VoicePanelController
-    @State private var spotlight: MacSpotlight
+    @State private var spotlight: MacSpotlight?
 
     init() {
         Prefs.registerDefaults()
@@ -28,7 +29,7 @@ struct LoftMacApp: App {
         let quickSearch = QuickSearchController(store: store, nav: nav)
         _quickSearch = State(initialValue: quickSearch)
         MacAppDelegate.openSpotlightItem = { quickSearch.open(spotlightItem: $0) }
-        _spotlight = State(initialValue: MacSpotlight(store: store))
+        _spotlight = State(initialValue: Self.indexesSpotlight ? MacSpotlight(store: store) : nil)
     }
 
     private static func makeAPI() -> LoftAPI? {
@@ -46,6 +47,16 @@ struct LoftMacApp: App {
         return UserDefaults.standard.string(forKey: Prefs.serverURL).flatMap(LiveLoftAPI.normalize).map(LiveLoftAPI.init(baseURL:))
     }
 
+    /// Fixture runs (UI tests, screenshots) keep their sample agents and issues out of this Mac's Spotlight.
+    private static var indexesSpotlight: Bool {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        return !args.contains("-ui-testing") && !args.contains("-ui-onboarding")
+        #else
+        return true
+        #endif
+    }
+
     var body: some Scene {
         Window("Loft", id: "main") {
             MacRootView()
@@ -57,6 +68,10 @@ struct LoftMacApp: App {
                 .onAppear { store.activate() }
                 // A tap on a widget.
                 .onOpenURL { url in if let link = DeepLink(url: url) { nav.open(link) } }
+                // A Loft item chosen in Spotlight, when SwiftUI hands it to the window rather than the app delegate.
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String { quickSearch.open(spotlightItem: id) }
+                }
                 #if DEBUG
                 .task {
                     let args = ProcessInfo.processInfo.arguments
