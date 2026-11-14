@@ -48,10 +48,12 @@ struct LoftMacApp: App {
                 // A tap on a widget.
                 .onOpenURL { url in
                     guard let link = DeepLink(url: url) else { return }
-                    // The Talk widget or control: Talk with whoever you talked to last. A link they didn't sign (another
-                    // app, a web page) or no one to talk to yet: the agents, mic off.
-                    if TalkKey.signs(url, key: TalkKey.current), let id = TalkRecipients.starter(lastAgentId: UserDefaults.standard.string(forKey: "voiceLastAgent"),
-                                                                     orchestratorId: store.orchestratorId, agents: store.agents) {
+                    // The Talk widget or control: Talk with whoever you talked to last. No one yet: the most
+                    // recent Lead, the To: row's first chip. A link they didn't sign (another app, a web page): the agents, mic off.
+                    if TalkKey.signs(url, key: TalkKey.current),
+                       let id = TalkRecipients.starter(lastAgentId: UserDefaults.standard.string(forKey: "voiceLastAgent"),
+                                                       orchestratorId: store.orchestratorId, agents: store.agents)
+                           ?? TalkRecipients.chips(store.agents, current: nil).first?.id {
                         nav.talk(id)
                     } else { nav.open(link) }
                 }

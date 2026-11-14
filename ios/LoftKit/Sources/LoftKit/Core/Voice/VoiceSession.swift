@@ -123,6 +123,8 @@ public final class VoiceSession {
         failureNeedsPermission = false
         failedSend = nil
         self.agentId = agentId
+        // Whoever you start Talk with (the picker too) is who the Talk widget starts with next.
+        UserDefaults.standard.set(agentId, forKey: "voiceLastAgent")
         if phase != .review {
             segments = []
             committed = ""

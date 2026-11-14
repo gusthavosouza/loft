@@ -61,7 +61,7 @@ struct LoftApp: App {
                 .onOpenURL { url in
                     if let id = TaskLink.id(from: url) { router.open(.task(taskId: id)) }
                     // The Talk widget or control: start listening with whoever you talked to last. A link they didn't
-                    // sign (another app, a web page) or no one to talk to yet: the Overview, mic off, whose Talk button asks who.
+                    // sign (another app, a web page) or no one to talk to yet: the Overview asking who, mic off.
                     else if TalkKey.signs(url, key: TalkKey.current),
                             let id = TalkRecipients.starter(lastAgentId: UserDefaults.standard.string(forKey: "voiceLastAgent"),
                                                             orchestratorId: store.orchestratorId, agents: store.agents) {
@@ -107,6 +107,8 @@ final class Router {
     var tasksPath = NavigationPath()
     var chatPath = NavigationPath()
     var composer: Composer?
+    /// The Overview's Talk button asks who to talk to (a Talk link with no one to start with).
+    var picksTalk = false
 
     enum Composer: Identifiable {
         case newTask(agentId: String?, parentId: String?)
@@ -136,6 +138,7 @@ final class Router {
             composer = nil
             tab = .overview
             overviewPath = NavigationPath()
+            picksTalk = true
         }
     }
 

@@ -196,6 +196,11 @@ private struct TalkButton: View {
             Button { picking = true } label: { Label("Talk to another agent…", systemImage: "person.wave.2") }
             Button { router.composer = .pickRecipient } label: { Label("Message an agent", systemImage: "bubble.left") }
         }
+        .onChange(of: router.picksTalk, initial: true) { _, asks in
+            guard asks else { return }
+            router.picksTalk = false
+            picking = true
+        }
         .sheet(isPresented: $picking) {
             NavigationStack {
                 VoiceAgentPicker { id in
