@@ -60,9 +60,9 @@ struct LoftApp: App {
                 // `loft://task/<id>`: from a message, a note or another app.
                 .onOpenURL { url in
                     if let id = TaskLink.id(from: url) { router.open(.task(taskId: id)) }
-                    // The Talk widget or control: start listening with whoever you talked to last (no one yet: the
-                    // Overview, whose Talk button asks who).
-                    else if DeepLink(url: url) == .talk,
+                    // The Talk widget or control: start listening with whoever you talked to last. A link they didn't
+                    // sign (another app, a web page) or no one to talk to yet: the Overview, mic off, whose Talk button asks who.
+                    else if TalkKey.signs(url, key: TalkKey.current),
                             let id = TalkRecipients.starter(lastAgentId: UserDefaults.standard.string(forKey: "voiceLastAgent"),
                                                             orchestratorId: store.orchestratorId, agents: store.agents) {
                         Task { await voice.start(agentId: id) }

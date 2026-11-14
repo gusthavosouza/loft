@@ -1,8 +1,59 @@
 import AppIntents
+import Security
 import SwiftUI
 import WidgetKit
 
-/// Opens `loft://talk`: the Talk control's tap. The app starts listening (iPhone) or opens Talk (Mac).
+/// Proves a `loft://talk` came from Loft's own widget or control: any app or web page can open a bare one, and only
+/// the signed one starts the mic (Security on #467). A random key in the Keychain group the apps and the widgets
+/// share (see `SharedServer`), made by whichever side needs it first. Without the group (an unsigned build) there is
+/// no key and Talk links only open the app.
+public enum TalkKey {
+    private static let service = "loft.talk-key"
+
+    /// The link the widget and the control open.
+    public static func url(key: String?) -> URL {
+        guard let key else { return DeepLink.talk.url }
+        return URL(string: "loft://talk?key=\(key)")!
+    }
+
+    /// Whether `url` is a Talk link signed with `key`.
+    public static func signs(_ url: URL, key: String?) -> Bool {
+        guard DeepLink(url: url) == .talk, let key, !key.isEmpty else { return false }
+        return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "key" }?.value == key
+    }
+
+    /// The key, made and saved on first use; nil when the Keychain group isn't there.
+    public static var current: String? {
+        if let k = read() { return k }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        let key = bytes.map { String(format: "%02x", $0) }.joined()
+        var q = query
+        q[kSecValueData] = Data(key.utf8)
+        q[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
+        // The other process may have saved one meanwhile: then that one is the key.
+        return SecItemAdd(q as CFDictionary, nil) == errSecSuccess ? key : read()
+    }
+
+    private static func read() -> String? {
+        var q = query
+        q[kSecReturnData] = true
+        q[kSecMatchLimit] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static var query: [CFString: Any] {
+        var q: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service]
+        #if os(macOS)
+        q[kSecUseDataProtectionKeychain] = true
+        #endif
+        return q
+    }
+}
+
+/// Opens the signed `loft://talk`: the Talk control's tap. The app starts listening (iPhone) or opens Talk (Mac).
 @available(iOS 18.0, macOS 26.0, *)
 public struct OpenTalkIntent: AppIntent {
     public static let title: LocalizedStringResource = "Talk to Loft"
@@ -11,7 +62,7 @@ public struct OpenTalkIntent: AppIntent {
 
     public init() {}
 
-    public func perform() async throws -> some IntentResult & OpensIntent { .result(opensIntent: OpenURLIntent(DeepLink.talk.url)) }
+    public func perform() async throws -> some IntentResult & OpensIntent { .result(opensIntent: OpenURLIntent(TalkKey.url(key: TalkKey.current))) }
 }
 
 /// The Talk control (spec #462): Control Center and the Lock Screen on the iPhone, Control Center on the Mac.
@@ -28,15 +79,21 @@ public struct TalkControl: ControlWidget {
     }
 }
 
-struct TalkEntry: TimelineEntry { let date: Date }
+struct TalkEntry: TimelineEntry {
+    let date: Date
+    /// The signed link the tap opens.
+    let link: URL
+}
 
-/// Nothing to read: the widget is a button.
+/// Only the key to read: the widget is a button.
 struct TalkProvider: TimelineProvider {
-    func placeholder(in context: Context) -> TalkEntry { TalkEntry(date: .now) }
-    func getSnapshot(in context: Context, completion: @escaping (TalkEntry) -> Void) { completion(TalkEntry(date: .now)) }
+    func placeholder(in context: Context) -> TalkEntry { TalkEntry(date: .now, link: DeepLink.talk.url) }
+    func getSnapshot(in context: Context, completion: @escaping (TalkEntry) -> Void) { completion(entry) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<TalkEntry>) -> Void) {
-        completion(Timeline(entries: [TalkEntry(date: .now)], policy: .never))
+        completion(Timeline(entries: [entry], policy: .never))
     }
+
+    private var entry: TalkEntry { TalkEntry(date: .now, link: TalkKey.url(key: TalkKey.current)) }
 }
 
 /// The one-tap Talk widget (spec #462): small on the Home Screen and the desktop, round on the Lock Screen.
@@ -44,10 +101,10 @@ public struct TalkWidget: Widget {
     public init() {}
 
     public var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "loft.talk", provider: TalkProvider()) { _ in
+        StaticConfiguration(kind: "loft.talk", provider: TalkProvider()) { entry in
             TalkEntryView()
                 .containerBackground(.background, for: .widget)
-                .widgetURL(DeepLink.talk.url)
+                .widgetURL(entry.link)
         }
         .configurationDisplayName("Talk")
         .description("One tap to start talking to Loft.")

@@ -13,6 +13,21 @@ final class TalkWidgetTests: XCTestCase {
         XCTAssertNil(DeepLink(url: URL(string: "https://example.com/talk")!))
     }
 
+    /// Any app or web page can open `loft://talk`: only the widget's and the control's signed link starts the mic.
+    func testOnlyALinkSignedWithTheKeyStartsListening() {
+        let key = "0f1e2d"
+        let signed = TalkKey.url(key: key)
+        XCTAssertEqual(DeepLink(url: signed), .talk, "a signed link is still the Talk link")
+        XCTAssertTrue(TalkKey.signs(signed, key: key))
+        XCTAssertFalse(TalkKey.signs(DeepLink.talk.url, key: key), "a bare link from another app")
+        XCTAssertFalse(TalkKey.signs(URL(string: "loft://talk?key=guess")!, key: key))
+        XCTAssertFalse(TalkKey.signs(URL(string: "loft://talk?key=")!, key: key))
+        XCTAssertFalse(TalkKey.signs(URL(string: "loft://agents?key=\(key)")!, key: key), "only Talk links")
+        XCTAssertFalse(TalkKey.signs(signed, key: nil), "no key (no shared Keychain): nothing starts the mic")
+        XCTAssertFalse(TalkKey.signs(URL(string: "loft://talk?key=")!, key: ""))
+        XCTAssertEqual(TalkKey.url(key: nil), DeepLink.talk.url)
+    }
+
     func testTalkStartsWithTheLastAgentElseTheOrchestratorElseAsks() async throws {
         let agents = try await FixtureAPI().agents()
         XCTAssertEqual(TalkRecipients.starter(lastAgentId: "qa", orchestratorId: "orch", agents: agents), "qa")
