@@ -2,8 +2,9 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// Approve or Deny on the Needs you widget (spec #462): sends the permission item's own action, as the app's Needs you
-/// does, without opening the app. WidgetKit reloads the widget once it returns, so the answered item drops off.
+/// Deny on the Needs you widget (spec #462): sends the permission item's own action, as the app's Needs you does,
+/// without opening the app. WidgetKit reloads the widget once it returns, so the answered item drops off. Approve is a
+/// link to the item's card in the app instead.
 public struct NeedsYouDecisionIntent: AppIntent {
     public static let title: LocalizedStringResource = "Answer a permission request"
     public static let isDiscoverable = false
@@ -53,7 +54,7 @@ public struct NeedsYouWidget: Widget {
                 .widgetURL(DeepLink.needsYou.url)
         }
         .configurationDisplayName("Needs you")
-        .description("Approve or deny permission requests, and see what else waits on you.")
+        .description("Deny permission requests or open them to approve, and see what else waits on you.")
         .supportedFamilies(Self.families)
     }
 
@@ -125,12 +126,11 @@ public struct NeedsYouWidgetView: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title).font(.caption.weight(.semibold)).lineLimit(1)
-                if item.approve != nil {
-                    // What Approve runs, on lines of its own: `subjectLimit` characters wrap to at most three (the title names the agent).
-                    Text(item.summary).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(3)
+                if item.deny != nil {
+                    // What it runs (the title names the agent); the app shows it whole before Approve.
+                    Text(item.summary).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
                 } else {
-                    // A permission's title already names the agent.
-                    Text([item.deny == nil ? item.agentName : nil, item.summary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                    Text([item.agentName, item.summary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
@@ -142,13 +142,16 @@ public struct NeedsYouWidgetView: View {
                     Button(intent: NeedsYouDecisionIntent(deny)) { Image(systemName: "xmark") }
                         .tint(.secondary).accessibilityLabel("Deny")
                 }
-                if let approve = item.approve {
-                    Button(intent: NeedsYouDecisionIntent(approve)) { Image(systemName: "checkmark") }
-                        .tint(Theme.accent).accessibilityLabel("Approve")
-                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            if let approve = item.approve {
+                // Opens the request's card in the app: Approve there, beside the whole command.
+                Image(systemName: "checkmark").font(.caption.weight(.semibold)).foregroundStyle(WidgetTheme.accent)
+                    .frame(width: 34, height: 24).background(WidgetTheme.accent.opacity(0.22), in: Capsule())
+                    .widgetLink(approve)
+                    .accessibilityLabel("Approve in Loft")
+            }
         }
     }
 }

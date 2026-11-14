@@ -1,9 +1,11 @@
 import Foundation
 
-/// Where a tap on a widget opens the app: `loft://needs-you`, `loft://agents`, `loft://agent/<id>`, `loft://issue/<id>`
-/// or `loft://talk`.
+/// Where a tap on a widget opens the app: `loft://needs-you`, `loft://needs-you/<item id>`, `loft://agents`,
+/// `loft://agent/<id>`, `loft://issue/<id>` or `loft://talk`.
 public enum DeepLink: Equatable {
     case needsYou
+    /// Needs you at one item's card: the widget's Approve, approved there with one more tap.
+    case needsYouItem(String)
     case agents
     case agent(String)
     /// An issue's page: the Delivery widget's spec.
@@ -14,6 +16,8 @@ public enum DeepLink: Equatable {
     public var url: URL {
         switch self {
         case .needsYou: URL(string: "loft://needs-you")!
+        case .needsYouItem(let id):
+            URL(string: "loft://needs-you/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(["/"])) ?? id)")!
         case .agents: URL(string: "loft://agents")!
         case .agent(let id): URL(string: "loft://agent/\(id)")!
         case .issue(let id): URL(string: "loft://issue/\(id)")!
@@ -24,7 +28,9 @@ public enum DeepLink: Equatable {
     public init?(url: URL) {
         guard url.scheme == "loft" else { return nil }
         switch url.host {
-        case "needs-you": self = .needsYou
+        case "needs-you":
+            let id = url.pathComponents.dropFirst().first ?? ""
+            self = id.isEmpty ? .needsYou : .needsYouItem(id)
         case "agents": self = .agents
         case "talk": self = .talk
         case "agent", "issue":
@@ -52,12 +58,12 @@ public struct WidgetSnapshot: Equatable {
         /// 3 blocks an agent now … 0 to review.
         public let urgency: Int
         public let link: DeepLink
-        /// One short line: the item's reason, or for a permission what will run (`permissionSubject`) when it has a short
-        /// one-line form.
+        /// One short line: the item's reason, or for a permission what will run (`permissionSubject`).
         public var summary = ""
-        /// A permission's Allow once and Deny, sent as the server gave them (spec #462); nil on everything else. Approve
-        /// only when the summary shows what will run whole; Deny on every permission.
-        public var approve: NeedsYouAction?
+        /// A permission's Approve: opens its card in the app, which shows the whole command and approves with one more
+        /// tap. The widget never approves by itself (spec #462). Nil on everything else.
+        public var approve: DeepLink?
+        /// A permission's Deny, sent from the widget as the server gave it; nil on everything else.
         public var deny: NeedsYouAction?
     }
 
@@ -90,7 +96,7 @@ public struct WidgetSnapshot: Equatable {
             return Item(id: $0.id, title: $0.title, agentName: $0.agent?.name, urgency: $0.urgency,
                         link: agentId.map(DeepLink.agent) ?? .needsYou,
                         summary: subject ?? $0.reason,
-                        approve: subject == nil ? nil : $0.actions.first { $0.kind == "approve" && $0.isRequest },
+                        approve: isPermission && $0.actions.contains { $0.kind == "approve" } ? .needsYouItem($0.id) : nil,
                         deny: isPermission ? $0.actions.first { $0.kind == "deny" && $0.isRequest } : nil)
         }
         working = agents.filter { a in
@@ -100,31 +106,14 @@ public struct WidgetSnapshot: Equatable {
         self.weekSpend = weekSpend
     }
 
-    /// The longest subject the widget approves: it wraps to at most three caption lines, so it always shows whole.
-    public static let subjectLimit = 60
-
     /// What a permission will run, as the server's text says it (backend `permission_text`): the `$ command` line for
-    /// Bash (never the agent's own description above it), else the path or URL. Nil when the widget can't show it whole:
-    /// more than one line, cut by the server, longer than `subjectLimit`, or a tool with no one-line form (its JSON).
+    /// Bash (never the agent's own description above it), else the first line (a path or URL). Nil for a tool with no
+    /// one-line form (its JSON). Only shown: Approve opens the app, which shows the whole command.
     static func permissionSubject(_ text: String) -> String? {
         let lines = text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
-        // Bash: the command starts at its "$ " line and runs to the end of the text.
-        let subject = lines.firstIndex { $0.hasPrefix("$ ") }.map { lines[$0...] } ?? lines[...]
-        guard subject.count == 1, let line = subject.first?.trimmingCharacters(in: .whitespaces), !line.isEmpty,
-              line != "$", !line.hasPrefix("{"), !line.hasPrefix("["), !line.hasSuffix("…"), line.count <= subjectLimit,
-              line.unicodeScalars.allSatisfy(isPlainText) else { return nil }
+        let line = (lines.first { $0.hasPrefix("$ ") } ?? lines[0]).trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty, line != "$", !line.hasPrefix("{"), !line.hasPrefix("[") else { return nil }
         return line
-    }
-
-    /// Printable text or a plain space: not a line break of any kind (`\r`, U+2028 …), a control or format character
-    /// (tabs, bidi overrides, zero-width characters) or another kind of space, any of which could hide part of the
-    /// command beside Approve.
-    private static func isPlainText(_ c: Unicode.Scalar) -> Bool {
-        if c == " " { return true }
-        switch c.properties.generalCategory {
-        case .control, .format, .lineSeparator, .paragraphSeparator, .spaceSeparator, .surrogate, .privateUse, .unassigned: return false
-        default: return !Character(c).isNewline
-        }
     }
 
     /// "$12.40", or nil when the spend is unknown.

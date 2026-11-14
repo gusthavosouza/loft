@@ -128,6 +128,11 @@ final class Router {
     func openLink(_ link: DeepLink) {
         switch link {
         case .needsYou: open(.needsYou)
+        case .needsYouItem(let id):
+            composer = nil
+            tab = .overview
+            overviewPath = NavigationPath()
+            overviewPath.append(NeedsYouRoute(focus: id))
         case .agent(let id): open(.chat(agentId: id))
         case .issue(let id): open(.task(taskId: id))
         case .agents:
@@ -254,7 +259,7 @@ extension View {
             .navigationDestination(for: ChatRoute.self) { ChatView(agentId: $0.agentId, draft: $0.draft, dictate: $0.dictate) }
             .navigationDestination(for: ActivityRoute.self) { _ in ActivityListView() }
             .navigationDestination(for: SettingsRoute.self) { _ in SettingsView() }
-            .navigationDestination(for: NeedsYouRoute.self) { _ in NeedsYouListView() }
+            .navigationDestination(for: NeedsYouRoute.self) { NeedsYouListView(focus: $0.focus) }
     }
 
     /// The global create button, in every tab's navigation bar.

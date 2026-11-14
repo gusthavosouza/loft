@@ -120,6 +120,8 @@ final class MacNav {
     /// The issue pages open in the Issues section, from the board's card on.
     var issuePath: [String] = []
 
+    /// The Needs you item to scroll to and outline: the Needs you widget's Approve.
+    var needsYouFocus: String?
     /// The chat to open Talk in, once it shows (the Talk widget or control).
     var talkIn: String?
 
@@ -136,7 +138,12 @@ final class MacNav {
 
     func open(_ link: DeepLink) {
         switch link {
-        case .needsYou: section = .needsYou
+        case .needsYou:
+            section = .needsYou
+            needsYouFocus = nil
+        case .needsYouItem(let id):
+            section = .needsYou
+            needsYouFocus = id
         case .agents, .talk: section = .agents
         case .agent(let id): openChat(id)
         case .issue(let id):

@@ -3,7 +3,7 @@ import XCTest
 @testable import Loft
 @testable import LoftKit
 
-/// The Needs you widget (spec #462): its items, Approve and Deny against a fake API, and its states drawn.
+/// The Needs you widget (spec #462): its items, Approve's link and Deny against a fake API, and its states drawn.
 /// `WIDGET_SHOTS=<folder>` also writes each drawing there as a PNG, for screenshots.
 final class NeedsYouWidgetTests: XCTestCase {
     private func load(_ api: FixtureAPI) async -> WidgetSnapshot {
@@ -29,43 +29,50 @@ final class NeedsYouWidgetTests: XCTestCase {
         let s = await load(api)
         for item in s.items {
             let type = try XCTUnwrap(list.items.first { $0.id == item.id }).type
-            XCTAssertEqual(item.approve != nil, type == "permission", item.id)
+            XCTAssertEqual(item.approve, type == "permission" ? .needsYouItem(item.id) : nil, item.id)
             XCTAssertEqual(item.deny != nil, type == "permission", item.id)
         }
-        let p = try XCTUnwrap(s.items.first { $0.approve != nil })
-        XCTAssertEqual(p.approve?.body?["decision"], .string("allow_once"), "Approve is Allow once, never Always allow")
+        let p = try XCTUnwrap(s.items.first { $0.deny != nil })
         XCTAssertEqual(p.deny?.body?["decision"], .string("deny"))
         let question = try XCTUnwrap(list.items.first { $0.type == "question" })
         XCTAssertEqual(s.items.first { $0.id == question.id }?.link, .agent(try XCTUnwrap(question.openAction?.target?.agentId)))
     }
 
-    func testTheIntentsSendTheItemsOwnActions() async throws {
+    func testDenySendsTheItemsOwnAction() async throws {
         let loaded = await load(FixtureAPI())
-        let p = try XCTUnwrap(loaded.items.first { $0.approve != nil })
+        let p = try XCTUnwrap(loaded.items.first { $0.deny != nil })
         var sent: [(String, String, JSONValue?)] = []
-        for action in [p.approve, p.deny].compactMap({ $0 }) {
-            try await NeedsYouDecisionIntent(action).send { sent.append(($0, $1, $2)) }
-        }
-        XCTAssertEqual(sent.map(\.0), ["POST", "POST"])
-        XCTAssertEqual(sent.map(\.1), ["/api/permissions/p1", "/api/permissions/p1"])
-        XCTAssertEqual(sent.map(\.2), [p.approve?.body, p.deny?.body])
+        try await NeedsYouDecisionIntent(try XCTUnwrap(p.deny)).send { sent.append(($0, $1, $2)) }
+        XCTAssertEqual(sent.map(\.0), ["POST"])
+        XCTAssertEqual(sent.map(\.1), ["/api/permissions/p1"])
+        XCTAssertEqual(sent.map(\.2), [p.deny?.body])
     }
 
-    func testAnApprovedItemIsGoneAfterTheReload() async throws {
+    func testADeniedItemIsGoneAfterTheReload() async throws {
         let api = FixtureAPI()
         let before = await load(api)
-        let p = try XCTUnwrap(before.items.first { $0.approve != nil })
-        try await NeedsYouDecisionIntent(try XCTUnwrap(p.approve)).send(api.needsYouRequest)
+        let p = try XCTUnwrap(before.items.first { $0.deny != nil })
+        try await NeedsYouDecisionIntent(try XCTUnwrap(p.deny)).send(api.needsYouRequest)
         let after = await load(api)
         XCTAssertFalse(after.items.contains { $0.id == p.id })
         let count = try await api.needsYou().count
         XCTAssertEqual(after.needsCount, count)
     }
 
+    /// Approve lands on the Needs you list at that request's card, where the user approves with one more tap.
+    @MainActor
+    func testApproveOpensNeedsYouAtTheRequest() {
+        let r = Router()
+        r.tab = .agents
+        r.openLink(.needsYouItem("permission:p1"))
+        XCTAssertEqual(r.tab, .overview)
+        XCTAssertEqual(r.overviewPath, { var p = NavigationPath(); p.append(NeedsYouRoute(focus: "permission:p1")); return p }())
+    }
+
     func testTheWidgetsReloadWhetherTheRequestWorksOrFails() async throws {
         let loaded = await load(FixtureAPI())
-        let p = try XCTUnwrap(loaded.items.first { $0.approve != nil })
-        let intent = NeedsYouDecisionIntent(try XCTUnwrap(p.approve))
+        let p = try XCTUnwrap(loaded.items.first { $0.deny != nil })
+        let intent = NeedsYouDecisionIntent(try XCTUnwrap(p.deny))
         var reloads = 0
         try await intent.send(FixtureAPI().needsYouRequest) { reloads += 1 }
         XCTAssertEqual(reloads, 1)
