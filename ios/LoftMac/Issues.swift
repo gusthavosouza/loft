@@ -24,6 +24,8 @@ struct IssuesSection: View {
                 }
             }
             .navigationTitle("Issues")
+            // The stack's own toolbar band, on the page colour like the other sections.
+            .toolbarBackground(WebTheme.canvas, for: .windowToolbar)
             .navigationDestination(for: String.self) { IssuePage(taskId: $0) }
         }
         .onAppear { store.deliveryWatchers += 1; store.loadDeliveries() }
@@ -80,17 +82,16 @@ private struct BoardColumn<Content: View>: View {
     let title: String
     let count: Int
     let id: String
-    var tone: Color = .secondary
+    var tone: Color = WebTheme.fg3
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(title.uppercased()).foregroundStyle(tone)
+                Text(title.uppercased()).eyebrow(tone)
                 Spacer()
-                Text("\(count)").foregroundStyle(.secondary)
+                Text("\(count)").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3)
             }
-            .font(.caption.weight(.semibold).monospaced())
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .accessibilityElement(children: .combine)
@@ -107,7 +108,8 @@ private struct BoardColumn<Content: View>: View {
         }
         .frame(width: 290)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(WebTheme.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: WebTheme.panelRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WebTheme.panelRadius, style: .continuous).strokeBorder(WebTheme.line))
     }
 }
 
@@ -117,9 +119,9 @@ private struct Card<Content: View>: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.secondary.opacity(0.2)))
+            .padding(12)
+            .background(WebTheme.raised, in: RoundedRectangle(cornerRadius: WebTheme.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WebTheme.rowRadius, style: .continuous).strokeBorder(WebTheme.line))
             .contentShape(Rectangle())
     }
 }
@@ -135,7 +137,7 @@ private struct IssueCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: task.state.isClosed ? "checkmark.circle" : "circle.circle")
-                            .foregroundStyle(task.state.isClosed ? Color.purple : Theme.working)
+                            .foregroundStyle(task.state.isClosed ? WebTheme.merged : Theme.working)
                             .accessibilityLabel(task.state.isClosed ? "Closed" : "Open")
                         Text(task.title).foregroundStyle(task.state.isClosed ? .secondary : .primary).lineLimit(3)
                     }
@@ -435,11 +437,7 @@ private struct DeliveryBadge: View {
     let state: String
 
     var body: some View {
-        Text(SpecViews.deliveryLabel(state))
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Theme.accent.opacity(0.15), in: Capsule())
-            .foregroundStyle(Theme.accent)
+        Text(SpecViews.deliveryLabel(state)).chip(Theme.accent)
     }
 }
 
@@ -463,14 +461,14 @@ private func ticketTone(_ state: String) -> Color {
     case "closed": Theme.working
     case "needs_human": Theme.attentionInk
     case "started", "review", "closing": Theme.accent
-    default: .secondary
+    default: WebTheme.fg3
     }
 }
 
 private extension SpecStage {
     var tone: Color {
         switch self {
-        case .planned, .dropped: .secondary
+        case .planned, .dropped: WebTheme.fg3
         case .delivery: Theme.accent
         case .ready: Theme.attentionInk
         case .shipped: Theme.working

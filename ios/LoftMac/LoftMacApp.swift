@@ -1,13 +1,18 @@
+import CoreSpotlight
 import LoftKit
 import SwiftUI
 
 /// Loft for Mac (spec #382): the same client as the iPhone app, in Mac windows with a sidebar of sections.
 @main
 struct LoftMacApp: App {
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var delegate
     @State private var store: LoftStore
     @State private var nav: MacNav
     @State private var alerts: MacAlerts
     @State private var voice: VoiceSession
+    @State private var quickSearch: QuickSearchController
+    @State private var voicePanel: VoicePanelController
+    @State private var spotlight: MacSpotlight?
 
     init() {
         Prefs.registerDefaults()
@@ -18,7 +23,13 @@ struct LoftMacApp: App {
         let nav = MacNav()
         _nav = State(initialValue: nav)
         _alerts = State(initialValue: MacAlerts(store: store, nav: nav))
-        _voice = State(initialValue: VoiceSession(store: store))
+        let voice = VoiceSession(store: store)
+        _voice = State(initialValue: voice)
+        _voicePanel = State(initialValue: VoicePanelController(store: store, nav: nav, voice: voice))
+        let quickSearch = QuickSearchController(store: store, nav: nav)
+        _quickSearch = State(initialValue: quickSearch)
+        MacAppDelegate.openSpotlightItem = { quickSearch.open(spotlightItem: $0) }
+        _spotlight = State(initialValue: Self.indexesSpotlight ? MacSpotlight(store: store) : nil)
     }
 
     private static func makeAPI() -> LoftAPI? {
@@ -36,6 +47,16 @@ struct LoftMacApp: App {
         return UserDefaults.standard.string(forKey: Prefs.serverURL).flatMap(LiveLoftAPI.normalize).map(LiveLoftAPI.init(baseURL:))
     }
 
+    /// Fixture runs (UI tests, screenshots) keep their sample agents and issues out of this Mac's Spotlight.
+    private static var indexesSpotlight: Bool {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        return !args.contains("-ui-testing") && !args.contains("-ui-onboarding")
+        #else
+        return true
+        #endif
+    }
+
     var body: some Scene {
         Window("Loft", id: "main") {
             MacRootView()
@@ -47,6 +68,10 @@ struct LoftMacApp: App {
                 .onAppear { store.activate() }
                 // A tap on a widget.
                 .onOpenURL { url in if let link = DeepLink(url: url) { nav.open(link) } }
+                // A Loft item chosen in Spotlight, when SwiftUI hands it to the window rather than the app delegate.
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String { quickSearch.open(spotlightItem: id) }
+                }
                 #if DEBUG
                 .task {
                     let args = ProcessInfo.processInfo.arguments
@@ -60,7 +85,7 @@ struct LoftMacApp: App {
         .defaultSize(width: 1400, height: 860)
         .commands { LoftCommands(nav: nav) }
 
-        MenuBarExtra { MenuBarContent().tint(Theme.accent).environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts).environment(store) }
+        MenuBarExtra { MenuBarContent(voicePanel: voicePanel).tint(Theme.accent).environment(store).environment(nav) } label: { MenuBarLabel(alerts: alerts, quickSearch: quickSearch).environment(store) }
             .menuBarExtraStyle(.window)
 
         Settings {
@@ -157,8 +182,15 @@ struct LoftCommands: Commands {
 /// First the address, then the window's sections. Loft unreachable with nothing loaded yet says so.
 struct MacRootView: View {
     @Environment(LoftStore.self) private var store
+    @AppStorage(Prefs.appearance) private var appearance = AppearanceChoice.dark.rawValue
 
     var body: some View {
+        content
+            .background(WebTheme.canvas)
+            .onChange(of: appearance, initial: true) { Appearance.apply(appearance) }
+    }
+
+    @ViewBuilder private var content: some View {
         if store.connection == .notConfigured {
             AddressForm(isOnboarding: true)
                 .frame(maxWidth: 520)
@@ -203,16 +235,19 @@ struct MainWindow: View {
     var body: some View {
         @Bindable var nav = nav
         NavigationSplitView {
-            List(selection: Binding(get: { nav.section }, set: { if let s = $0 { nav.section = s } })) {
+            List(selection: $nav.section) {
                 ForEach(MacSection.allCases) { s in
-                    Label(s.title, systemImage: s.symbol).tag(s).accessibilityIdentifier("section-\(s.title)")
+                    Label(s.title, systemImage: s.symbol).accessibilityIdentifier("section-\(s.title)")
                         .badge(s == .needsYou ? store.needsYou?.count ?? 0 : 0)
+                        .tag(s)
                 }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
+            .scrollContentBackground(.hidden)
+            .background(WebTheme.canvas)
             .safeAreaInset(edge: .bottom) {
                 Label {
-                    Text(store.connection.label).foregroundStyle(.secondary)
+                    Text(store.connection.label).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3)
                 } icon: {
                     Image(systemName: store.connection.isUsable ? "circle.fill" : "circle.dotted")
                         .foregroundStyle(store.connection.color)
@@ -231,6 +266,8 @@ struct MainWindow: View {
             case .settings: SettingsSection()
             }
         }
+        // The web's page, cards and text colours behind every section.
+        .webPage()
         .sheet(isPresented: $nav.picksRecipient) { RecipientPicker() }
     }
 }
@@ -274,15 +311,11 @@ struct RecipientPicker: View {
 }
 
 #if DEBUG
-/// `-render-window <folder>`: draws the main window to PNGs (the address step, or a chat, Issues, Overview and Needs you), then quits.
-/// For screenshots when a UI test can't drive the app (another copy of it is open, and XCUITest picks that one).
+/// `-render-window <folder>`: draws the main window to PNGs (the address step, or a chat, Issues, Overview, Needs you and
+/// Settings), then quits. For screenshots when a UI test can't drive the app (another copy of it is open, and XCUITest
+/// picks that one). `-appearance light|dark|system` picks the look for this launch only, without saving it.
 @MainActor
 func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
-    // `-render-appearance light|dark`: the system's own setting otherwise.
-    let args = ProcessInfo.processInfo.arguments
-    if let i = args.firstIndex(of: "-render-appearance"), i + 1 < args.count {
-        NSApp.appearance = NSAppearance(named: args[i + 1] == "dark" ? .darkAqua : .aqua)
-    }
     for _ in 0..<80 where store.agents.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
     try? await Task.sleep(for: .seconds(1))
     func png(_ name: String) {
@@ -298,7 +331,7 @@ func renderWindow(store: LoftStore, nav: MacNav, to folder: String) async {
         if let id = store.agents.first(where: { $0.name == "Orchestrator" })?.id { nav.openChat(id) }
         try? await Task.sleep(for: .seconds(2))
         png("agents")
-        for section in [MacSection.issues, .overview, .needsYou] {
+        for section in [MacSection.issues, .overview, .needsYou, .settings] {
             nav.section = section
             try? await Task.sleep(for: .seconds(2))
             png("\(section)")

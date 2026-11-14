@@ -17,6 +17,15 @@ struct ChatView: View {
     @State private var suggested: (messageId: Int64, replies: [String])?
     /// "Send to …?": the model thinks the message just sent to the Lead was meant for another agent.
     @State private var route: (text: String, agentId: String)?
+    /// "Got it, looking into …": the on-device model's first reply to a message to the Orchestrator, shown until the
+    /// real reply comes after message `after` (or for two minutes at most).
+    @State private var quickAck: (agentId: String, after: Int64, text: String, at: Date)?
+
+    private var shownQuickAck: String? {
+        guard let a = quickAck, a.agentId == agent.id, Date().timeIntervalSince(a.at) < 120,
+              !store.conversation(agent.id).contains(where: { $0.id > a.after && $0.role == "assistant" && $0.kind == "text" }) else { return nil }
+        return a.text
+    }
 
     /// The agent's latest message, when it's the last word in the chat and ends on a question.
     private var askingMessage: ChatMessage? {
@@ -44,6 +53,7 @@ struct ChatView: View {
                     }
                     ForEach(shown) { MessageRow(message: $0) }
                     ForEach(store.pending(for: agent.id)) { PendingRow(message: $0) }
+                    if let a = shownQuickAck { QuickAckRow(text: a) }
                 }
                 .padding(16)
             }
@@ -54,7 +64,6 @@ struct ChatView: View {
                     ContentUnavailableView("Couldn't load the chat", systemImage: "exclamationmark.bubble", description: Text(loadError.title))
                 }
             }
-            Divider()
             if let s = suggested, s.messageId == askingMessage?.id, draft.isEmpty, !s.replies.isEmpty {
                 HStack {
                     ForEach(s.replies, id: \.self) { r in
@@ -82,8 +91,16 @@ struct ChatView: View {
             }
             Composer(agent: agent, text: $draft, dictated: $draftByVoice, talk: { talking = true }) { sent in
                 route = nil
-                guard store.orchestratorId == agent.id, #available(macOS 26.0, *) else { return }
+                quickAck = nil
+                guard store.orchestratorId == agent.id else { return }
                 let id = agent.id
+                let before = store.conversation(id).last?.id ?? 0
+                Task {
+                    guard let ack = await OnDeviceFeatures.quickAck(for: sent), agent.id == id else { return }
+                    VoiceLog.shared.add("ai: quick acknowledgement: \(ack)")
+                    quickAck = (id, before, ack, Date())
+                }
+                guard #available(macOS 26.0, *) else { return }
                 Task {
                     guard let target = await OnDeviceFeatures.routeGuess(for: sent, agents: store.agents, orchestratorId: store.orchestratorId),
                           agent.id == id else { return }
@@ -134,8 +151,8 @@ private struct MessageRow: View {
                 VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
                     if let from = message.fromAgentName {
                         Text(message.isMentionReply ? "\(from) · answering your mention" : "From \(from)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tint)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(Theme.accent)
                     }
                     let photos = message.photos.compactMap { store.uploadURL(agentId: message.agentId, file: $0) }
                     if !photos.isEmpty {
@@ -144,13 +161,15 @@ private struct MessageRow: View {
                     if !message.displayContent.isEmpty {
                         Text(Self.markdown(message.displayContent))
                             .textSelection(.enabled)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .foregroundStyle(isUser ? Theme.onAccent : Color.primary)
-                            .background(isUser ? Theme.accent : Color.secondary.opacity(0.12),
-                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .padding(.horizontal, isUser ? 14 : 0)
+                            .padding(.vertical, isUser ? 9 : 0)
+                            .foregroundStyle(WebTheme.fg)
+                            // As on the web: your messages in a faint bubble, the agent's as plain text.
+                            .background(isUser ? WebTheme.fg.opacity(0.07) : .clear,
+                                        in: UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 16,
+                                                                   bottomTrailingRadius: 6, topTrailingRadius: 16, style: .continuous))
                     }
-                    Text(message.createdAt, style: .time).font(.caption2).foregroundStyle(.secondary)
+                    Text(message.createdAt, style: .time).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(WebTheme.fg3)
                 }
                 if !isUser { Spacer(minLength: 80) }
             }
@@ -176,6 +195,27 @@ private struct MessageRow: View {
 }
 
 /// A message on its way, or one that failed with Retry.
+/// The on-device model's one-line first reply, styled apart from real replies until one arrives.
+private struct QuickAckRow: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(text)
+            Label("Quick reply from this Mac · the real one is on its way", systemImage: "sparkles")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.accent.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3])) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Quick reply: \(text)")
+        .accessibilityIdentifier("quickAck")
+    }
+}
+
 private struct PendingRow: View {
     @Environment(LoftStore.self) private var store
     let message: PendingMessage
@@ -189,10 +229,10 @@ private struct PendingRow: View {
                 }
                 if !message.text.isEmpty {
                     Text(message.text)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .foregroundStyle(Theme.onAccent)
-                        .background(Theme.accent.opacity(message.isFailed ? 0.4 : 0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .foregroundStyle(WebTheme.fg.opacity(message.isFailed ? 0.6 : 0.8))
+                        .background(WebTheme.fg.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 if let failure = message.failure {
                     HStack {
@@ -279,7 +319,7 @@ private struct Composer: View {
             if let mentions, !mentions.isEmpty {
                 Suggestions {
                     ForEach(mentions, id: \.title) { section in
-                        Text(section.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(section.title).eyebrow()
                         ForEach(section.agents) { a in
                             SuggestionButton(id: "mention-\(a.name)") { text = MentionQuery.insert(a, into: text) } label: {
                                 HStack { Initials(name: a.name, lead: a.isLead, size: 20); Text(a.name) }
@@ -321,13 +361,18 @@ private struct Composer: View {
                     .onSubmit(submit)
                     .accessibilityIdentifier("composerField")
                 micButton
-                Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title2).foregroundStyle(canSend ? Theme.accent : WebTheme.fg3) }
                     .buttonStyle(.borderless)
                     .disabled(!canSend)
                     .help("Send (Return)")
                     .accessibilityLabel("Send")
                     .accessibilityIdentifier("sendButton")
             }
+            // The web's composer: a rounded field on ink-850 with a strong hairline, green when focused.
+            .padding(10)
+            .background(WebTheme.field, in: RoundedRectangle(cornerRadius: WebTheme.panelRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WebTheme.panelRadius, style: .continuous)
+                .strokeBorder(focused ? Theme.accent.opacity(0.4) : WebTheme.lineStrong))
         }
         .padding(12)
         .onAppear { focused = true }
@@ -475,7 +520,8 @@ private struct Suggestions<Content: View>: View {
         }
         .frame(maxHeight: 220)
         .fixedSize(horizontal: false, vertical: true)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(WebTheme.field, in: RoundedRectangle(cornerRadius: WebTheme.rowRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WebTheme.rowRadius, style: .continuous).strokeBorder(WebTheme.lineStrong))
         .accessibilityIdentifier("suggestions")
     }
 }
@@ -511,9 +557,10 @@ private struct AttachmentChip: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Remove \(attachment.file.lastPathComponent)")
         }
-        .font(.caption)
+        .font(.system(size: 11, design: .monospaced))
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(.background.secondary, in: Capsule())
+        .foregroundStyle(WebTheme.fg2)
+        .overlay(Capsule().strokeBorder(WebTheme.line))
     }
 }
