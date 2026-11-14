@@ -1,12 +1,15 @@
 import Foundation
 
-/// Where a tap on a widget opens the app: `loft://needs-you`, `loft://agents`, `loft://agent/<id>` or `loft://issue/<id>`.
+/// Where a tap on a widget opens the app: `loft://needs-you`, `loft://agents`, `loft://agent/<id>`, `loft://issue/<id>`
+/// or `loft://talk`.
 public enum DeepLink: Equatable {
     case needsYou
     case agents
     case agent(String)
     /// An issue's page: the Delivery widget's spec.
     case issue(String)
+    /// Start talking: the Talk widget and control.
+    case talk
 
     public var url: URL {
         switch self {
@@ -14,6 +17,7 @@ public enum DeepLink: Equatable {
         case .agents: URL(string: "loft://agents")!
         case .agent(let id): URL(string: "loft://agent/\(id)")!
         case .issue(let id): URL(string: "loft://issue/\(id)")!
+        case .talk: URL(string: "loft://talk")!
         }
     }
 
@@ -22,6 +26,7 @@ public enum DeepLink: Equatable {
         switch url.host {
         case "needs-you": self = .needsYou
         case "agents": self = .agents
+        case "talk": self = .talk
         case "agent", "issue":
             guard let id = url.pathComponents.dropFirst().first, !id.isEmpty else { return nil }
             self = url.host == "agent" ? .agent(id) : .issue(id)

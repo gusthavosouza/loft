@@ -2,6 +2,12 @@ import Foundation
 
 /// Who Talk can send to: the To: row's chips and the More list (iPhone and Mac).
 public enum TalkRecipients {
+    /// Who a one-tap Talk starts with: whoever you talked to last, else the orchestrator; nil when neither is an agent
+    /// Loft has (pick one then).
+    public static func starter(lastAgentId: String?, orchestratorId: String?, agents: [Agent]) -> String? {
+        [lastAgentId, orchestratorId].compactMap { $0 }.first { id in agents.contains { $0.id == id } }
+    }
+
     /// The chips: `current`, then every Lead, then the others, each most recently run first. The others fill the row
     /// up to `limit` chips; Leads are all shown, even past it.
     public static func chips(_ agents: [Agent], current: String?, limit: Int = 5) -> [Agent] {

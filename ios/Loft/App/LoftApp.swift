@@ -60,6 +60,13 @@ struct LoftApp: App {
                 // `loft://task/<id>`: from a message, a note or another app.
                 .onOpenURL { url in
                     if let id = TaskLink.id(from: url) { router.open(.task(taskId: id)) }
+                    // The Talk widget or control: start listening with whoever you talked to last (no one yet: the
+                    // Overview, whose Talk button asks who).
+                    else if DeepLink(url: url) == .talk,
+                            let id = TalkRecipients.starter(lastAgentId: UserDefaults.standard.string(forKey: "voiceLastAgent"),
+                                                            orchestratorId: store.orchestratorId, agents: store.agents) {
+                        Task { await voice.start(agentId: id) }
+                    }
                     // A tap on a widget.
                     else if let link = DeepLink(url: url) { router.openLink(link) }
                 }
@@ -125,6 +132,10 @@ final class Router {
             composer = nil
             tab = .agents
             agentsPath = NavigationPath()
+        case .talk:
+            composer = nil
+            tab = .overview
+            overviewPath = NavigationPath()
         }
     }
 

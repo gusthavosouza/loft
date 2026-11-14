@@ -46,7 +46,14 @@ struct LoftMacApp: App {
                 .frame(minWidth: 1180, minHeight: 640)
                 .onAppear { store.activate() }
                 // A tap on a widget.
-                .onOpenURL { url in if let link = DeepLink(url: url) { nav.open(link) } }
+                .onOpenURL { url in
+                    guard let link = DeepLink(url: url) else { return }
+                    // The Talk widget or control: Talk with whoever you talked to last (no one yet: the agents, to pick one).
+                    if link == .talk, let id = TalkRecipients.starter(lastAgentId: UserDefaults.standard.string(forKey: "voiceLastAgent"),
+                                                                     orchestratorId: store.orchestratorId, agents: store.agents) {
+                        nav.talk(id)
+                    } else { nav.open(link) }
+                }
                 #if DEBUG
                 .task {
                     let args = ProcessInfo.processInfo.arguments
@@ -110,15 +117,24 @@ final class MacNav {
     /// The issue pages open in the Issues section, from the board's card on.
     var issuePath: [String] = []
 
+    /// The chat to open Talk in, once it shows (the Talk widget or control).
+    var talkIn: String?
+
     func openChat(_ agentId: String) {
         section = .agents
         self.agentId = agentId
     }
 
+    /// Opens the agent's chat with Talk listening.
+    func talk(_ agentId: String) {
+        openChat(agentId)
+        talkIn = agentId
+    }
+
     func open(_ link: DeepLink) {
         switch link {
         case .needsYou: section = .needsYou
-        case .agents: section = .agents
+        case .agents, .talk: section = .agents
         case .agent(let id): openChat(id)
         case .issue(let id):
             section = .issues

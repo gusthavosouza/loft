@@ -10,6 +10,8 @@ struct LoftWidgetsMain: WidgetBundle {
         NeedsYouWidget()
         AgentWidget()
         DeliveryWidget()
+        TalkWidget()
+        if #available(iOS 18.0, macOS 26.0, *) { TalkControl() }
     }
 }
 
