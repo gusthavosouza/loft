@@ -92,7 +92,7 @@ public struct IssueDelivery: Codable, Hashable {
     }
 
     /// Where the line takes the user: the Checks tab on GitHub while it waits for CI, else nowhere.
-    var lineLink: URL? {
+    public var lineLink: URL? {
         guard line?.tone == .ci else { return nil }
         return checksUrl.flatMap(URL.init(string:))
     }
