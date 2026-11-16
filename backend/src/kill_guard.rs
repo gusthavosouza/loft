@@ -347,12 +347,13 @@ fn inside_ceiling(dir: &str, cwd: &Path, ceiling: &[PathBuf]) -> bool {
 /// it. Every subcommand changes them but the ones that only read (`git_reads`).
 fn git_changes(dirs: &Dirs, vars: &[&String], args: &[String]) -> Vec<PathBuf> {
     let mut dirs = dirs.clone();
-    let (mut tree, mut git_dir) = (None, None);
+    // As given: git reads a relative one from the folder it ends up in, past every `-C`.
+    let (mut tree, mut git_dir): (Option<Option<&str>>, Option<Option<&str>>) = (None, None);
     for v in vars {
         if let Some(d) = v.strip_prefix("GIT_WORK_TREE=") {
-            tree = Some(dirs.at(d));
+            tree = Some(Some(d));
         } else if let Some(d) = v.strip_prefix("GIT_DIR=") {
-            git_dir = Some(dirs.at(d));
+            git_dir = Some(Some(d));
         }
     }
     let mut it = args.iter();
@@ -364,10 +365,10 @@ fn git_changes(dirs: &Dirs, vars: &[&String], args: &[String]) -> Vec<PathBuf> {
                 let to = it.next().and_then(|d| dirs.at(d));
                 dirs.cwd = to;
             }
-            "--work-tree" => tree = Some(it.next().and_then(|d| dirs.at(d))),
-            "--git-dir" => git_dir = Some(it.next().and_then(|d| dirs.at(d))),
-            _ if value("--work-tree").is_some() => tree = Some(value("--work-tree").and_then(|d| dirs.at(d))),
-            _ if value("--git-dir").is_some() => git_dir = Some(value("--git-dir").and_then(|d| dirs.at(d))),
+            "--work-tree" => tree = Some(it.next().map(String::as_str)),
+            "--git-dir" => git_dir = Some(it.next().map(String::as_str)),
+            _ if value("--work-tree").is_some() => tree = Some(value("--work-tree")),
+            _ if value("--git-dir").is_some() => git_dir = Some(value("--git-dir")),
             "-c" | "--namespace" | "--config-env" | "--super-prefix" => {
                 it.next();
             }
@@ -375,6 +376,8 @@ fn git_changes(dirs: &Dirs, vars: &[&String], args: &[String]) -> Vec<PathBuf> {
             sub => break sub,
         }
     };
+    let tree = tree.map(|t| t.and_then(|d| dirs.at(d)));
+    let git_dir = git_dir.map(|g| g.and_then(|d| dirs.at(d)));
     let rest: Vec<&str> = it.map(String::as_str).collect();
     if git_reads(sub, &rest) || (sub == "config" && rest.iter().any(|a| matches!(*a, "--global" | "--system"))) {
         return vec![];
@@ -403,7 +406,9 @@ fn git_changes(dirs: &Dirs, vars: &[&String], args: &[String]) -> Vec<PathBuf> {
         let target = target.map_or(dirs.cwd.clone(), |t| dirs.at(t));
         return [target, git_dir.and_then(|d| dirs.at(d))].into_iter().flatten().collect();
     }
-    let found = dirs.cwd.map(|d| repo_root(d, &dirs.ceiling));
+    // With a repository named, git doesn't look for one, so no ceiling stops it: the folder's own checkout is it.
+    let ceiling: &[PathBuf] = if git_dir.is_some() { &[] } else { &dirs.ceiling };
+    let found = dirs.cwd.map(|d| repo_root(d, ceiling));
     // The checkout a `.git` folder belongs to.
     let repo = git_dir.unwrap_or(found.clone()).map(|d| if d.ends_with(".git") { d.parent().map(Path::to_path_buf).unwrap_or(d) } else { d });
     [tree.unwrap_or(found), repo].into_iter().flatten().collect()
@@ -1884,6 +1889,19 @@ mod tests {
             "ls; git checkout main &".into(),
             "ls; (git checkout main)".into(),
             "cd ../.. && ls && git checkout main".into(),
+            // Security's H1 on #571: the ceiling dropped or moved, or a link out, with no folder made first.
+            "mkdir t && GIT_CEILING_DIRECTORIES= git -C t reset --hard".into(),
+            "mkdir t; env -i git -C t reset --hard".into(),
+            format!("ln -s {} t && cd t && git reset --hard", project.display()),
+            "ln -s ../.. t && git -C t reset --hard".into(),
+            "cd nope; GIT_CEILING_DIRECTORIES= git reset --hard".into(),
+            "env -u GIT_CEILING_DIRECTORIES git -C nope reset --hard".into(),
+            "GIT_CEILING_DIRECTORIES=/tmp git -C nope reset --hard".into(),
+            // H2: a relative repository or work tree is read from the folder past every `-C`, not before it.
+            "git --git-dir=.git --work-tree=. -C ../.. reset --hard".into(),
+            "git --git-dir .git --work-tree . -C ../.. checkout main".into(),
+            "GIT_DIR=.git GIT_WORK_TREE=. git -C ../.. reset --hard".into(),
+            "git --git-dir=.git -C ../.. reset --hard".into(),
         ] {
             assert!(asks_under(&cmd).contains(&project), "should ask: {cmd}");
         }
