@@ -417,11 +417,20 @@ fn real_at(path: PathBuf, links: usize) -> PathBuf {
 
 /// The checkout git works on from `folder`: the nearest folder up holding a `.git`, or `folder` when none does.
 /// Symlinks are followed first, as git does. From below a `ceiling` folder, git doesn't look in it or above.
+/// A folder in an agent's workspace that doesn't exist yet (one a `clone` earlier in the command makes) stays in the
+/// workspace: git can't run there now, and once it exists it's its own repository, not the checkout around the storage.
 fn repo_root(folder: PathBuf, ceiling: &[PathBuf]) -> PathBuf {
     let folder = real(folder);
     let below = |d: &Path| ceiling.iter().any(|c| d != c && d.starts_with(c));
     let stop = ceiling.iter().any(|c| folder != *c && folder.starts_with(c));
-    folder.ancestors().take_while(|d| !stop || below(d)).find(|d| d.join(".git").exists()).map(Path::to_path_buf).unwrap_or(folder)
+    let in_workspace = |d: &Path| in_agent_storage(d) && d.file_name().is_some_and(|n| n != "agent-local-storage");
+    let new = !folder.exists() && in_workspace(&folder);
+    folder
+        .ancestors()
+        .take_while(|d| (!stop || below(d)) && (!new || in_workspace(d)))
+        .find(|d| d.join(".git").exists())
+        .map(Path::to_path_buf)
+        .unwrap_or(folder)
 }
 
 /// Whether a git subcommand, with its arguments, only reads.
@@ -1720,6 +1729,31 @@ mod tests {
         assert_eq!(asks("git reset --hard", &at(&clone.join("backend"))), None);
         // A work tree given from the workspace: git still finds the user's repository from the folder.
         assert_eq!(asks(&format!("git --work-tree={} checkout .", at(&clone)), &at(&ws)), Some(project.clone()));
+        std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_workspace_folder_that_doesnt_exist_yet_isnt_the_checkout_around_the_storage() {
+        let project = std::env::temp_dir().join(format!("loft-guard-{}", uuid::Uuid::new_v4())).join("loft");
+        let ws = project.join("agent-local-storage/x");
+        for d in [project.join(".git"), ws.join("loft/.git")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let project = std::fs::canonicalize(&project).unwrap();
+        let ws_at = ws.display().to_string();
+        // Cloned earlier in the same command: when the hook looks, the clone isn't there yet.
+        for cmd in [
+            format!("git clone /src {ws_at}/repo && git -C {ws_at}/repo remote set-url origin x"),
+            format!("git -C {ws_at}/missing remote set-url origin x"),
+            "git clone /src repo && git -C repo checkout -b feat".to_string(),
+            "git -C missing/deeper reset --hard".to_string(),
+        ] {
+            assert_eq!(asks(&cmd, &ws_at), None, "should run: {cmd}");
+        }
+        // A missing folder in a clone is still that clone; one out of the workspace still finds the checkout.
+        assert_eq!(asks("git -C loft/missing reset --hard", &ws_at), None);
+        assert_eq!(asks(&format!("git -C {}/missing checkout main", project.display()), &ws_at), Some(project.clone()));
+        assert_eq!(asks("git -C missing/../../.. checkout main", &ws_at), Some(project.clone()), "`..` out of the workspace");
         std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
     }
 
