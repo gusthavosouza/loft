@@ -286,11 +286,13 @@ const GIT_PLAIN_OPTIONS: &[&str] = &["-p", "--paginate", "-P", "--no-pager", "--
 /// Programs that run nothing they're given and aren't shell builtins that change the shell, so git after them in
 /// the same command still runs with the run's GIT_CEILING_DIRECTORIES. (`cd` moves only the folder, which the guard
 /// follows.) No wrapper (`env`, `sudo`, `xargs`, `sh`), nothing that sets, unsets or reads into a variable, and nothing
-/// that can make a symlink (`ln`, `cp`, `mv`) or run code (`node`, `npm`): a folder missing when the guard looks could
-/// be a link to the user's checkout by the time git runs, and only the ceiling keeps the guard from walking up there.
+/// that can make a symlink (`ln`, `cp`, `mv`), run code (`node`, `npm`, `rg --pre`) or write a file (`sort -o`,
+/// `uniq in out`, `tee`): a folder missing when the guard looks could be a link to the user's checkout by the time git
+/// runs, or hold a `.git` file pointing there, which git follows even under the ceiling. (`touch` makes only an empty
+/// file and `mkdir` an empty folder, neither of which git takes for a repository.)
 const PLAIN_PROGRAMS: &[&str] = &[
-    "cd", "ls", "pwd", "echo", "cat", "head", "tail", "grep", "rg", "wc", "sort", "uniq", "cut", "tr", "diff", "du", "date",
-    "mkdir", "touch", "rm", "true", "false", "sleep", "basename", "dirname", "realpath", "which", "jq",
+    "cd", "ls", "pwd", "echo", "cat", "head", "tail", "grep", "wc", "cut", "tr", "diff", "du", "date", "mkdir", "touch", "rm",
+    "true", "false", "sleep", "basename", "dirname", "realpath", "which",
 ];
 
 /// Whether `command` runs git with the run's GIT_CEILING_DIRECTORIES: simple commands joined by `&&`, `||`, `;` or a
@@ -311,11 +313,33 @@ fn plain_git(command: &str, cwd: &Path, ceiling: &[PathBuf]) -> bool {
         })
 }
 
-/// Whether `command` has no expansion, heredoc, herestring, process substitution, background job or second line.
-/// Quotes, globs, pipes and redirections to files are fine: the words are checked once the parser reads them.
+/// Whether `command` has no expansion, heredoc, herestring, process substitution, background job, second line or
+/// redirection to a file (a `.git` file there would point git anywhere). Quotes, globs, pipes and redirections to
+/// /dev/null or another descriptor (`2>&1`) are fine: the words are checked once the parser reads them.
 fn plain_shell(command: &str) -> bool {
-    let joined = ["&&", ">&", "&>", "|&"].iter().fold(command.to_string(), |c, op| c.replace(op, ""));
-    !command.contains(['$', '`', '<', '\n']) && !command.contains(">(") && !joined.contains('&')
+    let Some(command) = without_harmless_redirects(command) else { return false };
+    let joined = ["&&", "|&"].iter().fold(command.clone(), |c, op| c.replace(op, ""));
+    !command.contains(['$', '`', '<', '>', '\n']) && !joined.contains('&')
+}
+
+/// `command` with its redirections to /dev/null and to a descriptor (`2>&1`, `>&2`, `&>/dev/null`) taken out, or
+/// None when a `>` has another target. Quotes aren't read: a `>` in one counts as a redirection, so the guard walks up.
+fn without_harmless_redirects(command: &str) -> Option<String> {
+    let ends = |t: &str| t.is_empty() || t.starts_with(|c: char| c.is_whitespace() || ";|&)".contains(c));
+    let mut out = String::new();
+    let mut rest = command;
+    while let Some(i) = rest.find('>') {
+        out.push_str(rest[..i].trim_end_matches('&'));
+        out.push(' ');
+        let target = rest[i + 1..].trim_start_matches('>');
+        rest = match target.strip_prefix('&') {
+            // `>&2`: a descriptor. `>&word` is a file.
+            Some(fd) => Some(fd.trim_start_matches(|c: char| c.is_ascii_digit())).filter(|t| t.len() < fd.len() && ends(t))?,
+            None => target.trim_start().strip_prefix("/dev/null").filter(|t| ends(t))?,
+        };
+    }
+    out.push_str(rest);
+    Some(out)
 }
 
 /// Whether git's `args` are global options from `GIT_PLAIN_OPTIONS` or a `-C` inside a `ceiling` folder, then a
@@ -1873,6 +1897,8 @@ mod tests {
             "git checkout -q --detach origin/main".into(),
             format!("cd {w}/hb-queue/frontend && ls test; git stash -q 2>/dev/null; git checkout -q --detach origin/main 2>&1 | tail -3; git checkout -q pr77"),
             "mkdir -p scratch && git -C missing checkout -q main > /dev/null || echo failed".into(),
+            "git -C missing checkout -q main >/dev/null 2>&1; git -C missing status 2> /dev/null >&2 | tail -1".into(),
+            "touch .git && mkdir -p w/.git && git -C w checkout -q main &>/dev/null".into(),
         ] {
             assert_eq!(asks_under(&cmd), Vec::<PathBuf>::new(), "should run: {cmd}");
         }
@@ -1902,6 +1928,22 @@ mod tests {
             "git --git-dir .git --work-tree . -C ../.. checkout main".into(),
             "GIT_DIR=.git GIT_WORK_TREE=. git -C ../.. reset --hard".into(),
             "git --git-dir=.git -C ../.. reset --hard".into(),
+            // The Reviewer's: a `.git` file pointing at the checkout, which git follows even under the ceiling.
+            format!("mkdir w && echo 'gitdir: {}/.git' > w/.git && git -C w reset --hard", project.display()),
+            format!("mkdir w; echo 'gitdir: {}/.git' > w/.git; git -C w reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' > .git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' >> .git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' >.git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' 1>.git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' >&.git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' &> .git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' > /dev/null.git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' 2>&1 >.git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' | tee .git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' | sort -o .git && git reset --hard", project.display()),
+            format!("echo 'gitdir: {}/.git' | uniq - .git && git reset --hard", project.display()),
+            "rg --pre ./mk x && git reset --hard".into(),
+            "jq -n x && git reset --hard".into(),
         ] {
             assert!(asks_under(&cmd).contains(&project), "should ask: {cmd}");
         }
