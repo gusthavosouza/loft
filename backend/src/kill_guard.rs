@@ -283,22 +283,39 @@ const GIT_BUILTINS: &[&str] = &[
 /// Git's global options that take no value and don't change where git looks or what it runs.
 const GIT_PLAIN_OPTIONS: &[&str] = &["-p", "--paginate", "-P", "--no-pager", "--no-replace-objects", "--no-optional-locks", "--literal-pathspecs", "--no-advice"];
 
-/// Whether `command` is plain git, so it runs with the run's GIT_CEILING_DIRECTORIES: only `git <subcommand> <args>`,
-/// one or more joined by `&&` or `;`, each run directly (`plain_shell`), with only the global options git can't be
-/// moved by and a built-in subcommand (`plain_git_args`). Anything else may move the ceiling, so the guard walks up.
+/// Programs that run nothing they're given and aren't shell builtins that change the shell, so git after them in
+/// the same command still runs with the run's GIT_CEILING_DIRECTORIES. (`cd` moves only the folder, which the guard
+/// follows.) No wrapper (`env`, `sudo`, `xargs`, `sh`), nothing that sets, unsets or reads into a variable, and nothing
+/// that can make a symlink (`ln`, `cp`, `mv`) or run code (`node`, `npm`): a folder missing when the guard looks could
+/// be a link to the user's checkout by the time git runs, and only the ceiling keeps the guard from walking up there.
+const PLAIN_PROGRAMS: &[&str] = &[
+    "cd", "ls", "pwd", "echo", "cat", "head", "tail", "grep", "rg", "wc", "sort", "uniq", "cut", "tr", "diff", "du", "date",
+    "mkdir", "touch", "rm", "true", "false", "sleep", "basename", "dirname", "realpath", "which", "jq",
+];
+
+/// Whether `command` runs git with the run's GIT_CEILING_DIRECTORIES: simple commands joined by `&&`, `||`, `;` or a
+/// pipe, with redirections, each either git with only the global options git can't be moved by and a built-in
+/// subcommand (`plain_git_args`), or a program from `PLAIN_PROGRAMS`, run directly (`plain_shell`). Anything else (a
+/// wrapper, an assignment, a builtin, a subshell, an alias) may move the ceiling, so the guard walks up.
 fn plain_git(command: &str, cwd: &Path, ceiling: &[PathBuf]) -> bool {
     let cmds = if plain_shell(command) { parse(command) } else { vec![] };
     !cmds.is_empty()
-        && cmds.iter().all(|c| match c.words.split_first() {
-            Some((git, args)) if git == "git" => plain_git_args(args, cwd, ceiling),
-            _ => false,
+        && cmds.iter().all(|c| {
+            c.scope.is_empty()
+                && c.stdin.is_empty()
+                && match c.words.split_first() {
+                    Some((git, args)) if git == "git" => plain_git_args(args, cwd, ceiling),
+                    Some((name, _)) => PLAIN_PROGRAMS.contains(&name.as_str()),
+                    None => false,
+                }
         })
 }
 
-/// Whether `command` has no shell feature but quotes, `;` and `&&`: no wrapper syntax, pipe, redirection, subshell,
-/// expansion, glob, history, comment, background job or second line.
+/// Whether `command` has no expansion, heredoc, herestring, process substitution, background job or second line.
+/// Quotes, globs, pipes and redirections to files are fine: the words are checked once the parser reads them.
 fn plain_shell(command: &str) -> bool {
-    !command.contains(['$', '`', '\\', '|', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '~', '#', '!', '\n']) && !command.replace("&&", "").contains('&')
+    let joined = ["&&", ">&", "&>", "|&"].iter().fold(command.to_string(), |c, op| c.replace(op, ""));
+    !command.contains(['$', '`', '<', '\n']) && !command.contains(">(") && !joined.contains('&')
 }
 
 /// Whether git's `args` are global options from `GIT_PLAIN_OPTIONS` or a `-C` inside a `ceiling` folder, then a
@@ -417,20 +434,11 @@ fn real_at(path: PathBuf, links: usize) -> PathBuf {
 
 /// The checkout git works on from `folder`: the nearest folder up holding a `.git`, or `folder` when none does.
 /// Symlinks are followed first, as git does. From below a `ceiling` folder, git doesn't look in it or above.
-/// A folder in an agent's workspace that doesn't exist yet (one a `clone` earlier in the command makes) stays in the
-/// workspace: git can't run there now, and once it exists it's its own repository, not the checkout around the storage.
 fn repo_root(folder: PathBuf, ceiling: &[PathBuf]) -> PathBuf {
     let folder = real(folder);
     let below = |d: &Path| ceiling.iter().any(|c| d != c && d.starts_with(c));
     let stop = ceiling.iter().any(|c| folder != *c && folder.starts_with(c));
-    let in_workspace = |d: &Path| in_agent_storage(d) && d.file_name().is_some_and(|n| n != "agent-local-storage");
-    let new = !folder.exists() && in_workspace(&folder);
-    folder
-        .ancestors()
-        .take_while(|d| (!stop || below(d)) && (!new || in_workspace(d)))
-        .find(|d| d.join(".git").exists())
-        .map(Path::to_path_buf)
-        .unwrap_or(folder)
+    folder.ancestors().take_while(|d| !stop || below(d)).find(|d| d.join(".git").exists()).map(Path::to_path_buf).unwrap_or(folder)
 }
 
 /// Whether a git subcommand, with its arguments, only reads.
@@ -1733,31 +1741,6 @@ mod tests {
     }
 
     #[test]
-    fn a_workspace_folder_that_doesnt_exist_yet_isnt_the_checkout_around_the_storage() {
-        let project = std::env::temp_dir().join(format!("loft-guard-{}", uuid::Uuid::new_v4())).join("loft");
-        let ws = project.join("agent-local-storage/x");
-        for d in [project.join(".git"), ws.join("loft/.git")] {
-            std::fs::create_dir_all(d).unwrap();
-        }
-        let project = std::fs::canonicalize(&project).unwrap();
-        let ws_at = ws.display().to_string();
-        // Cloned earlier in the same command: when the hook looks, the clone isn't there yet.
-        for cmd in [
-            format!("git clone /src {ws_at}/repo && git -C {ws_at}/repo remote set-url origin x"),
-            format!("git -C {ws_at}/missing remote set-url origin x"),
-            "git clone /src repo && git -C repo checkout -b feat".to_string(),
-            "git -C missing/deeper reset --hard".to_string(),
-        ] {
-            assert_eq!(asks(&cmd, &ws_at), None, "should run: {cmd}");
-        }
-        // A missing folder in a clone is still that clone; one out of the workspace still finds the checkout.
-        assert_eq!(asks("git -C loft/missing reset --hard", &ws_at), None);
-        assert_eq!(asks(&format!("git -C {}/missing checkout main", project.display()), &ws_at), Some(project.clone()));
-        assert_eq!(asks("git -C missing/../../.. checkout main", &ws_at), Some(project.clone()), "`..` out of the workspace");
-        std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
-    }
-
-    #[test]
     fn git_stops_at_the_storage_folder_unless_the_command_moves_the_ceiling_or_the_repository() {
         let project = std::env::temp_dir().join(format!("loft-guard-{}", uuid::Uuid::new_v4())).join("loft");
         let storage = project.join("agent-local-storage");
@@ -1854,6 +1837,56 @@ mod tests {
         }
         // Git ignores a relative ceiling, and so does the guard.
         assert_eq!(asks_under("git checkout main", &ws, &[PathBuf::from("agent-local-storage")]), vec![project.clone()]);
+        std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn agents_everyday_git_keeps_the_ceiling_and_asks_nothing() {
+        let project = std::env::temp_dir().join(format!("loft-guard-{}", uuid::Uuid::new_v4())).join("loft");
+        let storage = project.join("agent-local-storage");
+        let ws = storage.join("x");
+        for d in [project.join(".git"), ws.join("notes"), ws.join("loft/.git")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let project = std::fs::canonicalize(&project).unwrap();
+        let ceiling = [storage.clone()];
+        let w = ws.display().to_string();
+        let asks_under = |cmd: &str| {
+            let input = json!({ "tool_name": "Bash", "cwd": w, "tool_input": { "command": cmd } }).to_string();
+            outside_changes(&input, &ceiling).into_iter().map(|c| c.folder).collect::<Vec<_>>()
+        };
+        // Seen asking the user in #570: run in the workspace, whose clone was missing then (not cloned yet, or
+        // cleaned up) or wasn't the folder. Under the ceiling, git fails there: it can't reach the user's checkout.
+        for cmd in [
+            format!("cd {w} && git clone -q /src api && git -C {w}/api remote set-url origin git@x:api.git && git -C {w}/api fetch -q origin"),
+            format!("git -C {w}/b2b-frontends remote set-url origin git@x:b2b.git; git -C {w}/b2b-frontends fetch -q origin"),
+            format!("git -C {w}/api fetch -q origin && git -C {w}/api checkout -q --detach origin/main 2>&1 | grep -E \"^# (tests|pass|fail)\""),
+            "git -C banjo-tuner checkout --detach 1ce1ac5".into(),
+            "git checkout -q slice/7-custom-tunings".into(),
+            "git checkout -q --detach a08490a70".into(),
+            "git switch -q -C pr-assets-533".into(),
+            "git checkout -q --detach origin/main".into(),
+            format!("cd {w}/hb-queue/frontend && ls test; git stash -q 2>/dev/null; git checkout -q --detach origin/main 2>&1 | tail -3; git checkout -q pr77"),
+            "mkdir -p scratch && git -C missing checkout -q main > /dev/null || echo failed".into(),
+        ] {
+            assert_eq!(asks_under(&cmd), Vec::<PathBuf>::new(), "should run: {cmd}");
+        }
+        // Something that can drop the ceiling, or make the missing folder a link to the checkout, before git runs.
+        for cmd in [
+            format!("ln -s {} l && git -C l reset --hard", project.display()),
+            "node setup.js && git -C missing checkout main".into(),
+            "npm test; git checkout -q main".into(),
+            "cp -R a b; git checkout main".into(),
+            "ls && unset GIT_CEILING_DIRECTORIES && git checkout main".into(),
+            "echo x > /dev/null; HOME=. git checkout main".into(),
+            "git checkout main | sh".into(),
+            "ls | xargs git checkout".into(),
+            "ls; git checkout main &".into(),
+            "ls; (git checkout main)".into(),
+            "cd ../.. && ls && git checkout main".into(),
+        ] {
+            assert!(asks_under(&cmd).contains(&project), "should ask: {cmd}");
+        }
         std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
     }
 
