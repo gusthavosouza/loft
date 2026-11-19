@@ -395,6 +395,23 @@ impl Dirs {
     }
 }
 
+/// Whether a command word from an expansion is one plain scalar the guard can follow: `$NAME` or `${NAME}`, with a literal path
+/// after it (`$S/run.sh`), or `$@`.
+fn plain_scalar(w: &str) -> bool {
+    let Some(r) = w.strip_prefix('$') else { return false };
+    if r == "@" || r == "{@}" {
+        return true;
+    }
+    let (name, tail) = match r.strip_prefix('{') {
+        Some(b) => match b.split_once('}') {
+            Some(x) => x,
+            None => return false,
+        },
+        None => r.split_at(r.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(r.len())),
+    };
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && (tail.is_empty() || (tail.starts_with('/') && !tail.contains(['$', '`', '*', '?', '[', '{', '(', ')'])))
+}
+
 /// Whether a folder isn't there, so a `cd` to it fails.
 #[cfg(not(test))]
 fn missing(folder: &Path) -> bool {
@@ -589,21 +606,32 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
             // A literal value of a folder option names a folder even without a `/` (`-C l`, `-Cl`, `--prefix=l`).
             let folders = args.iter().enumerate().filter_map(|(i, a)| {
                 let attached = a.strip_prefix("-C").filter(|r| !r.is_empty() && !r.starts_with('='));
-                let value = a.split_once('=').filter(|_| a.starts_with('-') && folder_option(a)).map(|(_, v)| v).or(attached);
+                let value = a.split_once('=').filter(|(_, v)| a.starts_with('-') && (folder_option(a) || v.contains('/'))).map(|(_, v)| v).or(attached);
                 let after_option = i.checked_sub(1).is_some_and(|p| folder_option(&args[p]));
                 value.or_else(|| after_option.then_some(a.as_str())).or_else(|| Some(a.as_str()).filter(|a| a.contains(['/', '~']) || *a == ".."))
-            }).filter(|a| !expands(a));
-            // The word may be more than one (`"${cmd[@]}"`, `$(echo git -C d)`), a function may run its arguments (`"$@"`), an
-            // export or a link made earlier may change what a folder or the environment is: none of these can be followed.
-            let unfollowed = name == "$" || ["[@]", "[*]", "$*", "${=", "$(", "`"].iter().any(|m| name.contains(m))
+            }).filter(|a| !expands(a)).collect::<Vec<_>>();
+            // Only one plain scalar can be followed (`$NAME`, `${NAME}`, with a literal path after it, or `$@`): the word may be an
+            // array (`$cmd` is every element), have flags or subscripts (`${(z)CMD}`, `${cmd[1,-1]}`) or be text handed to a shell
+            // (`sh <<< "$CMD"`, `trap "$CMD"`, a script read at depth > 0). `$@` is empty unless the command sets the arguments or
+            // an array, or runs a function; an array can't come from outside the command. A link or a file an earlier command may have
+            // made changes what a relative folder is; several `-C` add up; a glob or braces name any folder.
+            let tokens: Vec<&str> = text.split(|c: char| c.is_whitespace() || c == ';').collect();
+            let sets_array = text.contains("=(") || tokens.iter().any(|t| *t == "set" || t.starts_with("argv")) || tokens.windows(2).any(|w| matches!(w[0], "read" | "typeset" | "local" | "declare") && w[1].starts_with(['-', '+']) && w[1].contains(['a', 'A']));
+            let relative = folders.iter().any(|f| !f.starts_with(['/', '~']));
+            let made_before = relative && cmds[..i].iter().any(|c| c.words.iter().find(|w| assignment(w).is_none() && !KEYWORDS.contains(&w.as_str())).is_some_and(|w| !matches!(base(w), "cd" | "pushd" | "popd" | "echo" | "printf" | "true" | "false" | ":" | "test" | "[" | "[[" | "ls" | "cat" | "grep" | "pwd" | "mkdir" | "sleep" | "sort" | "head" | "tail" | "wc" | "date" | "git" | "cargo" | "npm" | "pnpm" | "node" | "yarn" | "for" | "while" | "until" | "if" | "select" | "export" | "unset" | "alias" | "unalias")));
+            let unfollowed = !plain_scalar(name)
+                || sets_array
+                || depth > 0
                 || !dirs.funcs.is_empty()
-                || ["GIT_", "npm_config", "NPM_CONFIG", "CARGO_"].iter().any(|m| text.contains(m))
-                || text.split(|c: char| c.is_whitespace() || c == ';').any(|w| w == "ln");
+                || made_before
+                || folders.iter().any(|f| f.contains(['*', '?', '[', '{']))
+                || args.iter().filter(|a| a.as_str() == "-C").count() + args.iter().filter(|a| a.starts_with("-C") && a.len() > 2).count() > 1
+                || ["GIT_", "npm_config", "NPM_CONFIG", "CARGO_"].iter().any(|m| text.contains(m));
             // After a wrapper (`env $E git …`) the word may be an assignment (`GIT_DIR=…`).
             if unfollowed || dirs.cwd.is_none() || name.contains('=') || all[..all.len() - words.len()].iter().any(|w| !KEYWORDS.contains(&w.as_str())) || (0..args.len()).any(may_name) {
                 out.extend(unknown_in(dirs, None).into_iter().map(|folder| Change { folder, command: command.clone() }));
             } else {
-                let named = folders.filter_map(|a| dirs.at_text(a)).chain(dirs.cwd.as_deref().map(outermost_checkout));
+                let named = folders.iter().filter_map(|a| dirs.at_text(a)).chain(dirs.cwd.as_deref().map(outermost_checkout));
                 out.extend(named.map(|folder| Change { folder, command: command.clone() }));
             }
             dirs.made = true;
@@ -4670,6 +4698,22 @@ mod tests {
             format!("CMD=\"git -C {u} reset --hard\"; bash -c \"$CMD\""),
             format!("export GIT_DIR={u}/.git GIT_WORK_TREE={u}; X=git; $X reset --hard"),
             format!("export npm_config_prefix={u}; $X install"),
+            format!("cmd=(git -C {u} reset --hard); $cmd"),
+            format!("cmd=(git -C {u}); $cmd reset --hard"),
+            format!("cmd=(cd {u}); $cmd; git reset --hard"),
+            format!("CMD=\"git -C {u} reset --hard\"; ${{(z)CMD}}"),
+            format!("CMD=\"git -C {u} reset --hard\"; sh <<< \"$CMD\""),
+            format!("CMD=\"git -C {u} reset --hard\"; echo \"$CMD\" | sh"),
+            format!("CMD=\"git -C {u} reset --hard\"; trap \"$CMD\" EXIT"),
+            format!("set -- git -C {u} reset --hard; \"$@\""),
+            format!("set -- cd {u}; \"$@\"; git reset --hard"),
+            format!("argv=(git -C {u} reset --hard); \"$@\""),
+            format!("(ln -s {u} l); X=git; $X -C l reset --hard"),
+            format!("/bin/ln -s {u} l; X=git; $X -C l reset --hard"),
+            format!("cp -a l2 l; X=git; $X -C l reset --hard"),
+            "X=git; $X -C src -C ../l reset --hard".to_string(),
+            "X=git; $X -C l* reset --hard".to_string(),
+            format!("X=npm; $X --prefi={u} install"),
             format!("ln -s {u} l; X=git; $X -C l reset --hard"),
             format!("X=pnpm; $X -C{u} install"),
         ] {
