@@ -574,12 +574,21 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
         }
         // A command word from an expansion (`$X -C d reset`, `env $NAME=x cmd`, `env $ASSIGNMENT cmd`): what runs is unknown, like
         // any program the guard doesn't know. It asks for the folder it runs in and for any folder its arguments name; when it
-        // runs somewhere the guard can't tell, or an argument is an expansion, it asks outright.
+        // runs somewhere the guard can't tell, or an argument that may name a folder is an expansion, it asks outright.
         if expands(name) {
             let command = words.join(" ");
-            let folders = std::iter::once(name).chain(args.iter()).map(|a| a.split_once('=').filter(|_| a.starts_with('-')).map_or(a.as_str(), |(_, v)| v)).filter(|a| a.contains(['/', '$', '`', '~']) || *a == "..");
+            const FOLDER_OPTIONS: &[&str] = &["-C", "--git-dir", "--work-tree", "--manifest-path", "--dir", "--prefix", "--cwd", "--directory", "--chdir", "--project", "--workspace", "--root"];
+            let folder_option = |a: &str| FOLDER_OPTIONS.iter().any(|o| a == *o || a.strip_prefix(o).is_some_and(|r| r.starts_with('=') || (*o == "-C" && !r.is_empty())));
+            // An expanded argument may name a folder when it follows a folder option, is one's value (`--prefix=$D`), or is a bare
+            // expansion that no other option takes (`$X install $P`). `--udid $U` and `$S/q1.txt` are plain values.
+            let may_name = |i: usize| {
+                let a = &args[i];
+                let prev = i.checked_sub(1).map(|p| args[p].as_str());
+                expands(a) && (folder_option(a) || a.split_once('=').is_some_and(|(n, _)| expands(n)) || prev.is_some_and(folder_option) || (!a.contains('/') && !a.starts_with('-') && !prev.is_some_and(|p| p.starts_with('-'))))
+            };
+            let folders = args.iter().map(|a| a.split_once('=').filter(|_| a.starts_with('-')).map_or(a.as_str(), |(_, v)| v)).filter(|a| !expands(a) && (a.contains(['/', '~']) || *a == ".."));
             // After a wrapper (`env $E git …`) the word may be an assignment (`GIT_DIR=…`).
-            if dirs.cwd.is_none() || name.contains('=') || all[..all.len() - words.len()].iter().any(|w| !KEYWORDS.contains(&w.as_str())) || args.iter().any(|a| expands(a)) {
+            if dirs.cwd.is_none() || name.contains('=') || all[..all.len() - words.len()].iter().any(|w| !KEYWORDS.contains(&w.as_str())) || (0..args.len()).any(may_name) {
                 out.extend(unknown_in(dirs, None).into_iter().map(|folder| Change { folder, command: command.clone() }));
             } else {
                 let named = folders.filter_map(|a| dirs.at_text(a)).chain(dirs.cwd.as_deref().map(outermost_checkout));
@@ -4618,6 +4627,10 @@ mod tests {
             "$BIN agents::some_test".to_string(),
             "\"$@\"".to_string(),
             format!("X=git; $X -C {c}/sub status"),
+            "$A tap -x 158 -y 822 --tap-style physical --udid $U".to_string(),
+            "$S/565/target/debug/loft".to_string(),
+            "$S/run.sh $PWD/loft/backend $S/q1.txt".to_string(),
+            "$G log --oneline -1 feat/x".to_string(),
         ] {
             assert_eq!(asks(&cmd, CLONE), None, "should run: {cmd}");
         }
@@ -4627,6 +4640,8 @@ mod tests {
             format!("X=git; cd {u}; $X reset --hard"),
             format!("X=git; $X -C {c}/../../.. reset --hard"),
             "cd \"$D\"; $X reset --hard".to_string(),
+            "$X --git-dir=$D reset".to_string(),
+            "$X --prefix $D install".to_string(),
         ] {
             assert!(!asks_all(&cmd, CLONE).is_empty(), "should ask: {cmd}");
         }
