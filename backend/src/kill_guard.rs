@@ -586,9 +586,21 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
                 let prev = i.checked_sub(1).map(|p| args[p].as_str());
                 expands(a) && (folder_option(a) || a.split_once('=').is_some_and(|(n, _)| expands(n)) || prev.is_some_and(folder_option) || (!a.contains('/') && !a.starts_with('-') && !prev.is_some_and(|p| p.starts_with('-'))))
             };
-            let folders = args.iter().map(|a| a.split_once('=').filter(|_| a.starts_with('-')).map_or(a.as_str(), |(_, v)| v)).filter(|a| !expands(a) && (a.contains(['/', '~']) || *a == ".."));
+            // A literal value of a folder option names a folder even without a `/` (`-C l`, `-Cl`, `--prefix=l`).
+            let folders = args.iter().enumerate().filter_map(|(i, a)| {
+                let attached = a.strip_prefix("-C").filter(|r| !r.is_empty() && !r.starts_with('='));
+                let value = a.split_once('=').filter(|_| a.starts_with('-') && folder_option(a)).map(|(_, v)| v).or(attached);
+                let after_option = i.checked_sub(1).is_some_and(|p| folder_option(&args[p]));
+                value.or_else(|| after_option.then_some(a.as_str())).or_else(|| Some(a.as_str()).filter(|a| a.contains(['/', '~']) || *a == ".."))
+            }).filter(|a| !expands(a));
+            // The word may be more than one (`"${cmd[@]}"`, `$(echo git -C d)`), a function may run its arguments (`"$@"`), an
+            // export or a link made earlier may change what a folder or the environment is: none of these can be followed.
+            let unfollowed = name == "$" || ["[@]", "[*]", "$*", "${=", "$(", "`"].iter().any(|m| name.contains(m))
+                || !dirs.funcs.is_empty()
+                || ["GIT_", "npm_config", "NPM_CONFIG", "CARGO_"].iter().any(|m| text.contains(m))
+                || text.split(|c: char| c.is_whitespace() || c == ';').any(|w| w == "ln");
             // After a wrapper (`env $E git …`) the word may be an assignment (`GIT_DIR=…`).
-            if dirs.cwd.is_none() || name.contains('=') || all[..all.len() - words.len()].iter().any(|w| !KEYWORDS.contains(&w.as_str())) || (0..args.len()).any(may_name) {
+            if unfollowed || dirs.cwd.is_none() || name.contains('=') || all[..all.len() - words.len()].iter().any(|w| !KEYWORDS.contains(&w.as_str())) || (0..args.len()).any(may_name) {
                 out.extend(unknown_in(dirs, None).into_iter().map(|folder| Change { folder, command: command.clone() }));
             } else {
                 let named = folders.filter_map(|a| dirs.at_text(a)).chain(dirs.cwd.as_deref().map(outermost_checkout));
@@ -770,6 +782,10 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
                     inner.enter(&chdir);
                     changes(&t, &mut inner, depth + 1, out);
                     dirs.keep_made(&inner);
+                    // The script is text from an expansion (`sh -c "$CMD"`): a program the guard can't read.
+                    if args.iter().any(|a| expands(a)) {
+                        out.extend(unknown_in(dirs, None).into_iter().map(|folder| Change { folder, command: words.join(" ") }));
+                    }
                 }
                 dirs.made = true;
                 continue;
@@ -778,6 +794,10 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
                 // The text numbers its lists from zero: what is pending before and after it is seen by what follows.
                 dirs.flush(usize::MAX);
                 changes(&args.join(" "), dirs, depth + 1, out);
+                // Text from an expansion (`eval "$CMD"`) is a program the guard can't read.
+                if args.iter().any(|a| expands(a)) {
+                    out.extend(unknown_in(dirs, None).into_iter().map(|folder| Change { folder, command: words.join(" ") }));
+                }
                 dirs.flush(usize::MAX);
                 if maybe {
                     dirs.may_stay(before);
@@ -4642,6 +4662,16 @@ mod tests {
             "cd \"$D\"; $X reset --hard".to_string(),
             "$X --git-dir=$D reset".to_string(),
             "$X --prefix $D install".to_string(),
+            format!("retry() {{ for i in 1 2 3; do \"$@\" && return; done }}; retry git -C {u} reset --hard"),
+            format!("cmd=(git -C {u} reset --hard); \"${{cmd[@]}}\""),
+            format!("CMD=\"git -C {u} reset --hard\"; eval \"$CMD\""),
+            format!("$(echo git -C {u}) reset --hard"),
+            format!("CMD=\"git -C {u} reset --hard\"; sh -c \"$CMD\""),
+            format!("CMD=\"git -C {u} reset --hard\"; bash -c \"$CMD\""),
+            format!("export GIT_DIR={u}/.git GIT_WORK_TREE={u}; X=git; $X reset --hard"),
+            format!("export npm_config_prefix={u}; $X install"),
+            format!("ln -s {u} l; X=git; $X -C l reset --hard"),
+            format!("X=pnpm; $X -C{u} install"),
         ] {
             assert!(!asks_all(&cmd, CLONE).is_empty(), "should ask: {cmd}");
         }
