@@ -572,9 +572,19 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
             dirs.made = true;
             continue;
         }
-        // A command word from an expansion (`$X -C d reset`, `env $NAME=x cmd`, `env $ASSIGNMENT cmd`): what runs is unknown.
+        // A command word from an expansion (`$X -C d reset`, `env $NAME=x cmd`, `env $ASSIGNMENT cmd`): what runs is unknown, like
+        // any program the guard doesn't know. It asks for the folder it runs in and for any folder its arguments name; when it
+        // runs somewhere the guard can't tell, or an argument is an expansion, it asks outright.
         if expands(name) {
-            out.extend(unknown_in(dirs, None).into_iter().map(|folder| Change { folder, command: words.join(" ") }));
+            let command = words.join(" ");
+            let folders = std::iter::once(name).chain(args.iter()).map(|a| a.split_once('=').filter(|_| a.starts_with('-')).map_or(a.as_str(), |(_, v)| v)).filter(|a| a.contains(['/', '$', '`', '~']) || *a == "..");
+            // After a wrapper (`env $E git …`) the word may be an assignment (`GIT_DIR=…`).
+            if dirs.cwd.is_none() || name.contains('=') || all[..all.len() - words.len()].iter().any(|w| !KEYWORDS.contains(&w.as_str())) || args.iter().any(|a| expands(a)) {
+                out.extend(unknown_in(dirs, None).into_iter().map(|folder| Change { folder, command: command.clone() }));
+            } else {
+                let named = folders.filter_map(|a| dirs.at_text(a)).chain(dirs.cwd.as_deref().map(outermost_checkout));
+                out.extend(named.map(|folder| Change { folder, command: command.clone() }));
+            }
             dirs.made = true;
             continue;
         }
@@ -4598,5 +4608,27 @@ mod tests {
         let v = asking.await.unwrap().0;
         assert_eq!(v["allow"], false);
         assert!(v["message"].as_str().unwrap().contains(&two.display().to_string()), "{v}");
+    }
+
+    #[test]
+    fn a_program_from_an_expansion_runs_in_an_own_clone_and_asks_elsewhere() {
+        let (u, c) = (USER, CLONE);
+        for cmd in [
+            format!("BIN={c}/target/debug/deps/loft-x; for i in 1 2 3; do $BIN 2>&1 | grep ok; done"),
+            "$BIN agents::some_test".to_string(),
+            "\"$@\"".to_string(),
+            format!("X=git; $X -C {c}/sub status"),
+        ] {
+            assert_eq!(asks(&cmd, CLONE), None, "should run: {cmd}");
+        }
+        for cmd in [
+            format!("X=git; $X -C {u} reset --hard"),
+            "X=git; $X -C $D reset".to_string(),
+            format!("X=git; cd {u}; $X reset --hard"),
+            format!("X=git; $X -C {c}/../../.. reset --hard"),
+            "cd \"$D\"; $X reset --hard".to_string(),
+        ] {
+            assert!(!asks_all(&cmd, CLONE).is_empty(), "should ask: {cmd}");
+        }
     }
 }
