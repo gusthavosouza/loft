@@ -619,7 +619,13 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
             let sets_array = text.contains("=(") || tokens.iter().any(|t| *t == "set" || t.starts_with("argv")) || tokens.windows(2).any(|w| matches!(w[0], "read" | "typeset" | "local" | "declare") && w[1].starts_with(['-', '+']) && w[1].contains(['a', 'A']));
             let relative = folders.iter().any(|f| !f.starts_with(['/', '~']));
             let made_before = relative && cmds[..i].iter().any(|c| c.words.iter().find(|w| assignment(w).is_none() && !KEYWORDS.contains(&w.as_str())).is_some_and(|w| !matches!(base(w), "cd" | "pushd" | "popd" | "echo" | "printf" | "true" | "false" | ":" | "test" | "[" | "[[" | "ls" | "cat" | "grep" | "pwd" | "mkdir" | "sleep" | "sort" | "head" | "tail" | "wc" | "date" | "git" | "cargo" | "npm" | "pnpm" | "node" | "yarn" | "for" | "while" | "until" | "if" | "select" | "export" | "unset" | "alias" | "unalias")));
-            let unfollowed = !plain_scalar(name)
+            // A shell or `eval` behind the word (`$SHELL -c "…"`, `X=eval; $X "…"`, `S=sh; $S c.sh`) runs text the guard can't read.
+            let shells = ["eval", "sh", "bash", "zsh", "dash", "ksh", "$SHELL", "${SHELL}"];
+            let shell_word = name.trim_matches(['$', '{', '}']) == "SHELL"
+                || args.iter().any(|a| a.len() > 1 && a.starts_with('-') && !a.starts_with("--") && a[1..].chars().all(|c| c.is_ascii_alphabetic()) && a.contains('c'))
+                || tokens.iter().any(|t| t.split_once('=').is_some_and(|(n, v)| assignment(t).is_some() && !n.is_empty() && shells.contains(&v.trim_matches(['"', '\'']).rsplit('/').next().unwrap_or_default())));
+            let unfollowed = shell_word
+                || !plain_scalar(name)
                 || sets_array
                 || depth > 0
                 || !dirs.funcs.is_empty()
@@ -4708,6 +4714,10 @@ mod tests {
             format!("set -- git -C {u} reset --hard; \"$@\""),
             format!("set -- cd {u}; \"$@\"; git reset --hard"),
             format!("argv=(git -C {u} reset --hard); \"$@\""),
+            format!("$SHELL -c \"git -C {u} reset --hard\""),
+            format!("X=eval; $X \"git -C {u} reset --hard\""),
+            "S=sh; $S c.sh".to_string(),
+            format!("CMD=\"git -C {u} reset --hard\"; $SHELL -c \"$CMD\""),
             format!("(ln -s {u} l); X=git; $X -C l reset --hard"),
             format!("/bin/ln -s {u} l; X=git; $X -C l reset --hard"),
             format!("cp -a l2 l; X=git; $X -C l reset --hard"),
