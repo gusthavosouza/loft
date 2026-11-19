@@ -395,21 +395,55 @@ impl Dirs {
     }
 }
 
-/// Whether a command word from an expansion is one plain scalar the guard can follow: `$NAME` or `${NAME}`, with a literal path
-/// after it (`$S/run.sh`), or `$@`.
-fn plain_scalar(w: &str) -> bool {
-    let Some(r) = w.strip_prefix('$') else { return false };
+/// The name in a command word from an expansion that is one plain scalar, and the literal path after it: `$NAME`, `${NAME}`,
+/// `$NAME/run.sh`, `$@`.
+fn scalar_name(w: &str) -> Option<(&str, &str)> {
+    let r = w.strip_prefix('$')?;
     if r == "@" || r == "{@}" {
-        return true;
+        return Some(("@", ""));
     }
     let (name, tail) = match r.strip_prefix('{') {
-        Some(b) => match b.split_once('}') {
-            Some(x) => x,
-            None => return false,
-        },
+        Some(b) => b.split_once('}')?,
         None => r.split_at(r.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(r.len())),
     };
-    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && (tail.is_empty() || (tail.starts_with('/') && !tail.contains(['$', '`', '*', '?', '[', '{', '(', ')'])))
+    let ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && (tail.is_empty() || (tail.starts_with('/') && !tail.contains(['$', '`', '*', '?', '[', '{', '(', ')'])));
+    ok.then_some((name, tail))
+}
+
+/// How many times `name` appears in `text` other than as a plain use (`$NAME`, `${NAME}`, `$NAME/x`): where the command sets it or
+/// may set it (`NAME=`, `NAME+=`, `for NAME`, `read NAME`, `${NAME:=x}`, `NAME[1]=`).
+fn setters(text: &str, name: &str) -> usize {
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    text.match_indices(name)
+        .filter(|&(at, _)| {
+            let (before, after) = (&text[..at], text[at + name.len()..].chars().next());
+            let used = before.ends_with('$') || before.ends_with("${");
+            !before.ends_with(ident) && !after.is_some_and(ident) && !(used && after.is_none_or(|c| !matches!(c, ':' | '=' | '+' | '#' | '%' | '[' | '(' | '@' | '^' | '~')))
+        })
+        .count()
+}
+
+/// `NAME=value` once, as a command of its own at the top level, and a later command whose program is `$NAME`: the program is the
+/// value, so the guard judges it as the literal one (`X=git; $X -C l reset` is `git -C l reset`). Whatever else sets the name
+/// (`for X in`, `read X`, `X+=`, inside a subshell or after `&&`) is left to ask.
+fn substitute(text: &str, cmds: &mut [Cmd]) {
+    for i in 0..cmds.len() {
+        let Some(k) = cmds[i].words.iter().position(|w| !KEYWORDS.contains(&w.as_str())) else { continue };
+        let Some((name, tail)) = scalar_name(&cmds[i].words[k]).filter(|(n, _)| *n != "@") else { continue };
+        if setters(text, name) != 1 {
+            continue;
+        }
+        let value = cmds[..i].iter().find_map(|c| {
+            let [w] = c.words.as_slice() else { return None };
+            let v = w.strip_prefix(name)?.strip_prefix('=')?;
+            let plain = !c.quoted[0] && c.scope.is_empty() && !c.maybe && !c.or && !c.piped && !c.defines;
+            (plain && !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || "_./+:@%-".contains(c))).then(|| v.to_string())
+        });
+        if let Some(v) = value {
+            cmds[i].words[k] = format!("{v}{tail}");
+            cmds[i].quoted[k] = false;
+        }
+    }
 }
 
 /// Whether a folder isn't there, so a `cd` to it fails.
@@ -451,7 +485,8 @@ fn changes(text: &str, dirs: &mut Dirs, depth: usize, out: &mut Vec<Change>) {
     }
     // The whole text, so a mention inside a `<(…)` or a subshell counts too.
     dirs.cd_search |= mentions_cd_search(text);
-    let cmds = parse(text);
+    let mut cmds = parse(text);
+    substitute(text, &mut cmds);
     // A body is an index range of this text: the functions from outside it, or defined in it once it is done, have none.
     let outer: Vec<_> = dirs.funcs.iter().map(|f| f.1).collect();
     dirs.funcs.iter_mut().for_each(|f| f.1 = None);
@@ -610,26 +645,24 @@ fn run(text: &str, cmds: &[Cmd], range: std::ops::Range<usize>, dirs: &mut Dirs,
                 let after_option = i.checked_sub(1).is_some_and(|p| folder_option(&args[p]));
                 value.or_else(|| after_option.then_some(a.as_str())).or_else(|| Some(a.as_str()).filter(|a| a.contains(['/', '~']) || *a == ".."))
             }).filter(|a| !expands(a)).collect::<Vec<_>>();
-            // Only one plain scalar can be followed (`$NAME`, `${NAME}`, with a literal path after it, or `$@`): the word may be an
-            // array (`$cmd` is every element), have flags or subscripts (`${(z)CMD}`, `${cmd[1,-1]}`) or be text handed to a shell
-            // (`sh <<< "$CMD"`, `trap "$CMD"`, a script read at depth > 0). `$@` is empty unless the command sets the arguments or
-            // an array, or runs a function; an array can't come from outside the command. A link or a file an earlier command may have
-            // made changes what a relative folder is; several `-C` add up; a glob or braces name any folder.
-            let tokens: Vec<&str> = text.split(|c: char| c.is_whitespace() || c == ';').collect();
-            let sets_array = text.contains("=(") || tokens.iter().any(|t| *t == "set" || t.starts_with("argv")) || tokens.windows(2).any(|w| matches!(w[0], "read" | "typeset" | "local" | "declare") && w[1].starts_with(['-', '+']) && w[1].contains(['a', 'A']));
+            // What `substitute` couldn't put in place of the word. A name the command never sets (`$BIN`, `$A`, `$S/run.sh`) comes from
+            // the environment: one scalar. Anything else may be anything: a name set another way, an array, a flag or subscript,
+            // text handed to a shell, the arguments (`$@` is empty at the top level unless the command sets them or runs a function), or
+            // a name that is a shell (`$SHELL`, `$0`). A link or a file an earlier command may have made changes what a relative folder
+            // is; several `-C` add up; a glob or braces name any folder.
+            let named = scalar_name(name).map(|(n, _)| n);
+            let all_words = || cmds.iter().flat_map(|c| c.words.iter().map(String::as_str));
+            let sets_args = all_words().any(|w| matches!(w, "set" | "read" | "shift" | "getopts" | "zparseopts" | "sysread" | "vared" | "printf" | "eval") || w.starts_with("argv") || w.contains("::=") || w.contains("(A)") || w.split_once('=').is_some_and(|(n, _)| n.chars().all(|c| c.is_ascii_digit()) && !n.is_empty()));
+            let from_env = named.is_some_and(|n| match n {
+                "@" => !sets_args,
+                "*" | "_" | "argv" | "SHELL" | "ZSH_NAME" | "ZSH_ARGZERO" => false,
+                n => !n.chars().all(|c| c.is_ascii_digit()) && setters(text, n) == 0,
+            });
             let relative = folders.iter().any(|f| !f.starts_with(['/', '~']));
-            let made_before = relative && cmds[..i].iter().any(|c| c.words.iter().find(|w| assignment(w).is_none() && !KEYWORDS.contains(&w.as_str())).is_some_and(|w| !matches!(base(w), "cd" | "pushd" | "popd" | "echo" | "printf" | "true" | "false" | ":" | "test" | "[" | "[[" | "ls" | "cat" | "grep" | "pwd" | "mkdir" | "sleep" | "sort" | "head" | "tail" | "wc" | "date" | "git" | "cargo" | "npm" | "pnpm" | "node" | "yarn" | "for" | "while" | "until" | "if" | "select" | "export" | "unset" | "alias" | "unalias")));
-            // A shell or `eval` behind the word (`$SHELL -c "…"`, `X=eval; $X "…"`, `S=sh; $S c.sh`) runs text the guard can't read.
-            let shells = ["eval", "sh", "bash", "zsh", "dash", "ksh", "$SHELL", "${SHELL}"];
-            let shell_word = name.trim_matches(['$', '{', '}']) == "SHELL"
-                || args.iter().any(|a| a.len() > 1 && a.starts_with('-') && !a.starts_with("--") && a[1..].chars().all(|c| c.is_ascii_alphabetic()) && a.contains('c'))
-                || tokens.iter().any(|t| t.split_once('=').is_some_and(|(n, v)| assignment(t).is_some() && !n.is_empty() && shells.contains(&v.trim_matches(['"', '\'']).rsplit('/').next().unwrap_or_default())));
-            let unfollowed = shell_word
-                || !plain_scalar(name)
-                || sets_array
+            let unfollowed = !from_env
                 || depth > 0
                 || !dirs.funcs.is_empty()
-                || made_before
+                || (relative && dirs.made)
                 || folders.iter().any(|f| f.contains(['*', '?', '[', '{']))
                 || args.iter().filter(|a| a.as_str() == "-C").count() + args.iter().filter(|a| a.starts_with("-C") && a.len() > 2).count() > 1
                 || ["GIT_", "npm_config", "NPM_CONFIG", "CARGO_"].iter().any(|m| text.contains(m));
@@ -4685,6 +4718,11 @@ mod tests {
             "$S/565/target/debug/loft".to_string(),
             "$S/run.sh $PWD/loft/backend $S/q1.txt".to_string(),
             "$G log --oneline -1 feat/x".to_string(),
+            "set -e; X=git; $X status".to_string(),
+            "files=(a b); X=git; $X status".to_string(),
+            "PY=python3; $PY -c 'print(1)'".to_string(),
+            "CC=clang; $CC -c x.c".to_string(),
+            "T=tar; $T -czf out.tgz src".to_string(),
         ] {
             assert_eq!(asks(&cmd, CLONE), None, "should run: {cmd}");
         }
@@ -4716,8 +4754,29 @@ mod tests {
             format!("argv=(git -C {u} reset --hard); \"$@\""),
             format!("$SHELL -c \"git -C {u} reset --hard\""),
             format!("X=eval; $X \"git -C {u} reset --hard\""),
-            "S=sh; $S c.sh".to_string(),
             format!("CMD=\"git -C {u} reset --hard\"; $SHELL -c \"$CMD\""),
+            format!("(set -- git -C {u} reset --hard; \"$@\")"),
+            format!("1=git; 2=-C; 3={u}; 4=reset; 5=--hard; \"$@\""),
+            format!("read 1 2 3 4 5 <<< \"git -C {u} reset --hard\"; \"$@\""),
+            format!("read -r -A cmd <<< \"git -C {u} reset --hard\"; $cmd"),
+            format!("cmd[1]=git; cmd[2]=-C; cmd[3]={u}; cmd[4]=reset; $cmd"),
+            format!("typeset -g -a cmd; cmd+=git; cmd+=-C; cmd+={u}; cmd+=reset; $cmd"),
+            format!("$0 <<< \"git -C {u} reset --hard\""),
+            format!("$ZSH_NAME <<< \"git -C {u} reset --hard\""),
+            format!("X=eval&&$X \"git -C {u} reset --hard\""),
+            format!("(X=eval; $X \"git -C {u} reset --hard\")"),
+            format!("X=e\"va\"l; $X \"git -C {u} reset --hard\""),
+            format!("X=ev; X+=al; $X \"git -C {u} reset --hard\""),
+            format!("for X in eval; do $X \"git -C {u} reset --hard\"; done"),
+            format!(": ${{X:=eval}}; $X \"git -C {u} reset --hard\""),
+            format!("X=builtin; $X eval \"git -C {u} reset --hard\""),
+            format!("X=env; $X sh <<< \"git -C {u} reset --hard\""),
+            format!("X=trap; $X \"git -C {u} reset --hard\" EXIT"),
+            format!("ln -s {u} l; X=git; cd l; $X reset --hard"),
+            format!("ln -s {u} l; X=git; $X -C {c}/l reset --hard"),
+            format!("echo ${{x:-$(ln -s {u} l)}}; X=git; $X -C l reset --hard"),
+            format!("node -e \"require('fs').symlinkSync('{u}','l')\"; X=git; $X -C l reset --hard"),
+            format!("git -c alias.x='!ln -s {u} l' x; X=git; $X -C l reset --hard"),
             format!("(ln -s {u} l); X=git; $X -C l reset --hard"),
             format!("/bin/ln -s {u} l; X=git; $X -C l reset --hard"),
             format!("cp -a l2 l; X=git; $X -C l reset --hard"),
