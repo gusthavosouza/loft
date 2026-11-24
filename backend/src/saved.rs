@@ -20,11 +20,12 @@ pub struct NewSaved {
     tag: String,
 }
 
-/// Saves a chat message: yours or the agent's text. An empty title becomes the message's first line.
+/// Saves a chat message: yours or the agent's text, but not one cancelled before the agent got it. An empty title
+/// becomes the message's first line.
 pub async fn create(State(state): State<AppState>, Json(b): Json<NewSaved>) -> ApiResult<SavedItem> {
     let agent = state.db.get_agent(&b.agent_id)?.ok_or_else(not_found)?;
     let m = state.db.get_message(&agent.id, b.message_id)?.ok_or_else(|| bad("That message isn't in this chat."))?;
-    if m.kind != "text" || !matches!(m.role.as_str(), "user" | "assistant") || m.content.trim().is_empty() {
+    if m.kind != "text" || !matches!(m.role.as_str(), "user" | "assistant") || m.content.trim().is_empty() || m.meta["cancelled"] == true {
         return Err(bad("Only a chat message with text can be saved."));
     }
     let title = match b.title.trim() {
@@ -212,6 +213,18 @@ mod tests {
         // Another agent's chat doesn't hold it.
         assert!(save(&st, &b.id, text.id, "t", "").await.is_err());
         assert_eq!(save(&st, "no-such-agent", text.id, "t", "").await.unwrap_err().0, axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_message_cant_be_saved() {
+        let st = state();
+        let a = agent(&st, "Dev");
+        st.rt.lock().unwrap().running.insert(a.id.clone(), std::sync::Arc::new(tokio::sync::Notify::new()));
+        let queued = crate::agents::enqueue_chat(&st, &a.id, "never mind".into(), json!({})).unwrap().id;
+        assert!(crate::agents::cancel_queued(&st, &a.id, queued).unwrap());
+        let e = save(&st, &a.id, queued, "t", "").await.unwrap_err();
+        assert_eq!((e.0, e.1.as_str()), (axum::http::StatusCode::BAD_REQUEST, "Only a chat message with text can be saved."));
+        assert!(titles(&listed(&st, "", "").await).is_empty());
     }
 
     #[tokio::test]
