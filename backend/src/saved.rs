@@ -88,9 +88,13 @@ fn doc_path(i: &SavedItem) -> String {
 
 /// Exports an item to a project's docs: a new branch off the default one with `docs/<slug>.md` (made, or updated when
 /// it's already there) holding the content and a line back to the item, and a pull request from it. Each export
-/// opens a new PR, which becomes the item's. Answers the PR, as the PR cards have it.
+/// opens a new PR, which becomes the item's. Answers the PR, as the PR cards have it. A PR card belongs to an agent,
+/// so an item whose agent is gone isn't exported.
 pub async fn export(State(state): State<AppState>, Path(id): Path<i64>, Json(b): Json<ExportTo>) -> ApiResult<Value> {
     let item = state.db.get_saved(id)?.ok_or_else(not_found)?;
+    if state.db.get_agent(&item.agent_id)?.is_none() {
+        return Err(bad(format!("{} is gone, so Loft can't track a pull request for this item. Copy its text into the docs by hand.", item.agent_name)));
+    }
     let slug = crate::repos::github_repo(&state, &b.project).await.map_err(|e| bad(format!("{e}, so Loft can't open a pull request there.")))?;
     let failed = |e: anyhow::Error| bad(format!("Couldn't export to {slug}: {e}"));
     let repo = |path: String| format!("/repos/{slug}{path}");
@@ -410,6 +414,26 @@ mod tests {
             assert!(e.1.contains(says) && e.1.ends_with("so Loft can't open a pull request there."), "{}", e.1);
         }
         assert!(fake.seen("/").is_empty());
+        let Json(v) = get(State(st.clone()), Path(i.id)).await.unwrap();
+        assert!(v["pr"].is_null());
+    }
+
+    #[tokio::test]
+    async fn an_item_whose_agent_is_gone_isnt_exported() {
+        let st = crate::planning::tests::state();
+        let fake = crate::github::tests::own_fake(&st);
+        project(&st, "site", Some("git@github.com:octo/site.git"));
+        let a = agent(&st, "Dev");
+        let m = st.db.add_message(&a.id, None, "assistant", "text", "Keep", json!({})).unwrap();
+        let i = save(&st, &a.id, m.id, "Kept", "").await.unwrap();
+        st.db.delete_agent(&a.id).unwrap();
+
+        let e = export(State(st.clone()), Path(i.id), Json(ExportTo { project: "site".into() })).await.unwrap_err();
+        assert_eq!(e.0, axum::http::StatusCode::BAD_REQUEST);
+        assert!(e.1.starts_with("Dev is gone, so Loft can't track a pull request"), "{}", e.1);
+        // Nothing reached GitHub and no PR row was left without an agent.
+        assert!(fake.seen("/").is_empty());
+        assert!(st.db.list_pull_requests(None).unwrap().is_empty());
         let Json(v) = get(State(st.clone()), Path(i.id)).await.unwrap();
         assert!(v["pr"].is_null());
     }
