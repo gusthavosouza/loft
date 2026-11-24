@@ -89,7 +89,8 @@ fn doc_path(i: &SavedItem) -> String {
 /// Exports an item to a project's docs: a new branch off the default one with `docs/<slug>.md` (made, or updated when
 /// it's already there) holding the content and a line back to the item, and a pull request from it. Each export
 /// opens a new PR, which becomes the item's. Answers the PR, as the PR cards have it. A PR card belongs to an agent,
-/// so an item whose agent is gone isn't exported.
+/// so an item whose agent is gone isn't exported. GitHub's steps aren't one: when one fails after the branch is made,
+/// the error names the branch left behind, and once the PR is open a failure to track it still gives its link.
 pub async fn export(State(state): State<AppState>, Path(id): Path<i64>, Json(b): Json<ExportTo>) -> ApiResult<Value> {
     let item = state.db.get_saved(id)?.ok_or_else(not_found)?;
     if state.db.get_agent(&item.agent_id)?.is_none() {
@@ -104,13 +105,14 @@ pub async fn export(State(state): State<AppState>, Path(id): Path<i64>, Json(b):
     let post = reqwest::Method::POST;
     let r#ref = json!({ "ref": format!("refs/heads/{branch}"), "sha": head["object"]["sha"] });
     crate::github::request(&state, post.clone(), &repo("/git/refs".into()), Some(r#ref)).await.map_err(failed)?;
+    let left = |e: anyhow::Error| bad(format!("Couldn't export to {slug}: {e}. The branch `{branch}` is left on GitHub; delete it there if you don't need it."));
 
     let path = doc_path(&item);
     // Already in the docs: the PR updates it.
     let existing = match crate::github::get(&state, &repo(format!("/contents/{path}?ref={branch}"))).await {
         Ok(f) => f["sha"].as_str().map(String::from),
         Err(e) if crate::github::is_gone(&e) => None,
-        Err(e) => return Err(failed(e)),
+        Err(e) => return Err(left(e)),
     };
     let port = state.cfg.port;
     let link = match tokio::task::spawn_blocking(move || crate::tailnet::web_url(port)).await.ok().flatten() {
@@ -127,7 +129,7 @@ pub async fn export(State(state): State<AppState>, Path(id): Path<i64>, Json(b):
     if let Some(sha) = &existing {
         put["sha"] = json!(sha);
     }
-    crate::github::request(&state, reqwest::Method::PUT, &repo(format!("/contents/{path}")), Some(put)).await.map_err(failed)?;
+    crate::github::request(&state, reqwest::Method::PUT, &repo(format!("/contents/{path}")), Some(put)).await.map_err(left)?;
     let verb = if existing.is_some() { "Updates" } else { "Adds" };
     let made = crate::github::request(&state, post, &repo("/pulls".into()), Some(json!({
         "title": format!("Docs: {}", item.title),
@@ -136,10 +138,11 @@ pub async fn export(State(state): State<AppState>, Path(id): Path<i64>, Json(b):
         "body": format!("{verb} `{path}` with \"{}\", kept in Loft's Saved.", item.title),
     })))
     .await
-    .map_err(failed)?;
-    let number = made["number"].as_i64().ok_or_else(|| bad(format!("GitHub opened the pull request on {slug} but didn't return its number.")))?;
-    let pr = crate::prs::register(&state, &item.agent_id, &slug, number, None).await.map_err(failed)?;
-    state.db.set_saved_export(id, &pr.id)?;
+    .map_err(left)?;
+    let number = made["number"].as_i64().ok_or_else(|| bad(format!("GitHub opened the pull request on {slug} from `{branch}` but didn't return its number.")))?;
+    let untracked = |e: anyhow::Error| bad(format!("The pull request is open at https://github.com/{slug}/pull/{number}, but Loft couldn't track it: {e}"));
+    let pr = crate::prs::register(&state, &item.agent_id, &slug, number, None).await.map_err(untracked)?;
+    state.db.set_saved_export(id, &pr.id).map_err(untracked)?;
     Ok(Json(json!(pr)))
 }
 
@@ -414,6 +417,32 @@ mod tests {
             assert!(e.1.contains(says) && e.1.ends_with("so Loft can't open a pull request there."), "{}", e.1);
         }
         assert!(fake.seen("/").is_empty());
+        let Json(v) = get(State(st.clone()), Path(i.id)).await.unwrap();
+        assert!(v["pr"].is_null());
+    }
+
+    #[tokio::test]
+    async fn a_failed_pull_request_names_the_branch_left_behind() {
+        let st = crate::planning::tests::state();
+        let fake = crate::github::tests::own_fake(&st);
+        project(&st, "site", Some("git@github.com:octo/site.git"));
+        let a = agent(&st, "Dev");
+        let m = st.db.add_message(&a.id, None, "assistant", "text", "Keep", json!({})).unwrap();
+        let i = save(&st, &a.id, m.id, "Kept", "").await.unwrap();
+        let r = "/repos/octo/site";
+        fake.route("GET", r, 200, json!({ "default_branch": "main" }));
+        fake.route("GET", &format!("{r}/git/ref/heads/main"), 200, json!({ "object": { "sha": "s" } }));
+        fake.route("POST", &format!("{r}/git/refs"), 201, json!({}));
+        fake.route("GET", &format!("{r}/contents/docs/kept.md"), 404, json!({ "message": "Not Found" }));
+        fake.route("PUT", &format!("{r}/contents/docs/kept.md"), 201, json!({}));
+        fake.route("POST", &format!("{r}/pulls"), 422, json!({ "message": "Validation Failed" }));
+
+        let e = export(State(st.clone()), Path(i.id), Json(ExportTo { project: "site".into() })).await.unwrap_err();
+        assert_eq!(e.0, axum::http::StatusCode::BAD_REQUEST);
+        let refs = fake.seen(&format!("{r}/git/refs"));
+        let branch = refs[0].body["ref"].as_str().unwrap().strip_prefix("refs/heads/").unwrap().to_string();
+        assert!(e.1.starts_with("Couldn't export to octo/site: "), "{}", e.1);
+        assert!(e.1.ends_with(&format!("The branch `{branch}` is left on GitHub; delete it there if you don't need it.")), "{}", e.1);
         let Json(v) = get(State(st.clone()), Path(i.id)).await.unwrap();
         assert!(v["pr"].is_null());
     }
