@@ -71,11 +71,12 @@ pub struct ExportTo {
     project: String,
 }
 
-/// `docs/<slug>.md` for an item: its title in lowercase words joined by `-`, or `saved-<id>` when it has none.
+/// `docs/<slug>.md` for an item: its title in lowercase words (letters and digits in any language) joined by `-`, or
+/// `saved-<id>` when it has none.
 fn doc_path(i: &SavedItem) -> String {
     let mut slug = String::new();
-    for w in i.title.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()) {
-        if !slug.is_empty() && slug.len() + w.len() >= 60 {
+    for w in i.title.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
+        if !slug.is_empty() && slug.chars().count() + w.chars().count() >= 60 {
             break;
         }
         if !slug.is_empty() {
@@ -471,8 +472,10 @@ mod tests {
     fn the_doc_is_named_after_the_title() {
         let mut i = SavedItem { id: 4, title: "How to: deploy the *backend* (v2)".into(), tag: String::new(), content: String::new(), agent_id: String::new(), agent_name: String::new(), message_id: 0, created_at: String::new(), updated_at: None, export_pr: None };
         assert_eq!(doc_path(&i), "docs/how-to-deploy-the-backend-v2.md");
+        i.title = "Decisão de portas".into();
+        assert_eq!(doc_path(&i), "docs/decisão-de-portas.md");
         i.title = "Ünïcode ✨".into();
-        assert_eq!(doc_path(&i), "docs/n-code.md");
+        assert_eq!(doc_path(&i), "docs/ünïcode.md");
         i.title = "✨".into();
         assert_eq!(doc_path(&i), "docs/saved-4.md");
     }
