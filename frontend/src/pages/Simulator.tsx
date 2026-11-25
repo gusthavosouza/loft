@@ -53,7 +53,7 @@ export default function SimulatorPage() {
         {data?.devices.length === 1 && device && <span className="ml-auto font-mono text-[11px] text-fg-3">{label(device)}</span>}
       </div>
       {data === null ? (
-        <div className="skeleton aspect-[9/19.5] h-full max-h-[75vh] rounded-[2.5rem]" />
+        <div className="skeleton aspect-[9/19.5] h-full max-h-[75vh] max-w-full rounded-[2.5rem]" />
       ) : data.error ? (
         <p className="text-fg-3">{data.error}</p>
       ) : !device ? (
