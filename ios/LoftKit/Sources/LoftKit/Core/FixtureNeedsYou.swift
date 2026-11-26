@@ -426,7 +426,7 @@ public enum FixtureNeedsYou {
 }
 """#
 
-    /// `-fixture-pr-workflows`: a PR whose head changes `.github/workflows/`, as the server words it (#701).
+    /// `-fixture-pr-workflows`: a PR that changed `.github/workflows/`, as the server words it (#701).
     public static let prWorkflows = #"""
 {
  "actions": [
@@ -439,7 +439,7 @@ public enum FixtureNeedsYou {
  "id": "pr_workflows:pr1:abc123",
  "links": [{ "label": "Pull request", "url": "https://github.com/octo/loft/pull/214" }],
  "project": "loft",
- "reason": "It changes .github/workflows/: check the change before its CI runs.",
+ "reason": "It changed .github/workflows/ or .github/actions/: its CI may already have run with the repo's secrets.",
  "task_id": null,
  "text": "A workflow changed on a branch of the repo runs with the repo's secrets. Read the workflow change on GitHub; if it shouldn't run, close the PR or cancel its run there.",
  "title": "octo/loft#214: Settings endpoints",
