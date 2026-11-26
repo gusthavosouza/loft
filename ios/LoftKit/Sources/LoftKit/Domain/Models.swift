@@ -408,6 +408,19 @@ public struct PullRequest: Codable, Identifiable, Hashable {
     public var createdAt: Date?
     /// Label names; the verdicts are tests:green, qa:passed, security:passed and their failures.
     public var labels: [String]?
+    /// Its head changes `.github/workflows/`, which runs with the repo's secrets. An older server doesn't send it.
+    public var changesWorkflows: Bool? = nil
+    /// The head commit its files were read for, and its current head.
+    public var kindSha: String? = nil
+    public var headSha: String? = nil
+
+    /// The web card's rule: an open PR whose current head changes workflows.
+    public var changesWorkflowsNow: Bool { state == "open" && changesWorkflows == true && kindSha == headSha }
+}
+
+/// The workflow-change warning (`pr_workflows` items, and PRs with `changes_workflows`).
+public enum WorkflowWarning {
+    public static let text = "This PR changes CI workflows, which run with your repo's secrets."
 }
 
 public struct ServerInfo: Codable, Hashable {
