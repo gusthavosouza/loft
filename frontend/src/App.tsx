@@ -67,14 +67,14 @@ function PendingBadge() {
   }, [open]);
   const count = items.length;
   if (!count) return null;
-  // On phones it is just the icon with the count on its corner, like the Needs you badge, so the top bar still fits.
-  const pill = "relative flex items-center gap-1.5 rounded-full border border-warn/30 bg-warn/10 px-2.5 py-1 font-mono text-[11px] text-warn max-lg:size-7 max-lg:justify-center max-lg:p-0";
+  // Below 2xl it is just the icon with the count on its corner, like the Needs you badge, so the top bar still fits.
+  const pill = "relative flex items-center gap-1.5 rounded-full border border-warn/30 bg-warn/10 px-2.5 py-1 font-mono text-[11px] text-warn max-2xl:size-7 max-2xl:justify-center max-2xl:p-0";
   const ariaLabel = `${count} permission${count > 1 ? "s" : ""} pending`;
   const label = (
     <>
       <ShieldAlert className="size-3.5" />
-      <span className="max-lg:hidden">{count} permission{count > 1 ? "s" : ""} pending</span>
-      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-warn px-1 text-[9.5px] font-medium leading-none text-ink-950 lg:hidden">{count}</span>
+      <span className="max-2xl:hidden">{count} permission{count > 1 ? "s" : ""} pending</span>
+      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-warn px-1 text-[9.5px] font-medium leading-none text-ink-950 2xl:hidden">{count}</span>
     </>
   );
   if (count === 1) {
@@ -241,7 +241,7 @@ export default function App() {
             <PendingBadge />
             <NeedsYouBadge live={live} />
             {/* The meters and the clock don't fit on a phone; the live dot and settings do. */}
-            <div className="flex items-center gap-4 max-lg:hidden">
+            <div className="flex items-center gap-4 max-xl:hidden">
               <UpdateStatus live={live} />
               <UsageMeter live={live} />
               <TempMeter live={live} />
@@ -250,7 +250,7 @@ export default function App() {
               <span className={cx("size-1.5 rounded-full", live ? "bg-good animate-pulse-soft" : "bg-bad")} />
               <span className="max-sm:hidden">{live ? "live" : "offline"}</span>
             </span>
-            <span className="max-lg:hidden">
+            <span className="max-xl:hidden">
               <Clock />
             </span>
             <NavLink to="/settings" title="Settings" className={({ isActive }) => cx("rounded-full p-1.5 transition-colors", isActive ? "bg-white/[0.08] text-fg" : "text-fg-3 hover:text-fg")}>
