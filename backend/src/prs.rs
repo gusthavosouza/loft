@@ -398,9 +398,9 @@ async fn mark_ready_if_due(state: &AppState, pr: &mut PullRequest) {
     }
 }
 
-/// Whether a PR changing `files` changes a GitHub Actions workflow.
+/// Whether a PR changing `files` changes a GitHub Actions workflow, or a local action one can use.
 fn changes_workflows(files: &[String]) -> bool {
-    files.iter().any(|f| f.starts_with(".github/workflows/"))
+    files.iter().any(|f| f.starts_with(".github/workflows/") || f.starts_with(".github/actions/"))
 }
 
 /// Reads an open PR's files once per head, so a ready PR is flagged for changing workflows too, not only a draft.
@@ -413,7 +413,7 @@ async fn files_read_if_open(state: &AppState, pr: &mut PullRequest) {
 /// Reads the PR's kind, and whether it changes workflows, for its head when they aren't known yet (one files read
 /// per head). False when that fails.
 async fn kind_known(state: &AppState, pr: &mut PullRequest) -> bool {
-    if pr.kind_sha == pr.head_sha {
+    if pr.kind_sha == pr.head_sha && pr.changes_workflows.is_some() {
         return true;
     }
     // More files than one page lists: take the strictest kind rather than guess.
@@ -429,7 +429,7 @@ async fn kind_known(state: &AppState, pr: &mut PullRequest) -> bool {
         }
     };
     match kind {
-        Ok((k, w)) => (pr.kind, pr.changes_workflows, pr.kind_sha) = (k.into(), w, pr.head_sha.clone()),
+        Ok((k, w)) => (pr.kind, pr.changes_workflows, pr.kind_sha) = (k.into(), Some(w), pr.head_sha.clone()),
         Err(e) => {
             tracing::warn!("files of {}#{}: {e}", pr.slug, pr.number);
             return false;
@@ -1081,7 +1081,7 @@ mod tests {
         let fake = own_fake(&st);
         let flagged = |st: &AppState| crate::needs_you::collect(st).unwrap().into_iter().filter(|i| i.kind == "pr_workflows").count();
         let plain = draft_pr(&st, &fake, "wf-plain", 1, &[], &["backend/src/a.rs", ".github/dependabot.yml"]).await;
-        assert!(!plain.changes_workflows);
+        assert_eq!(plain.changes_workflows, Some(false));
         assert_eq!(flagged(&st), 0);
 
         // A ready PR: its files are read too.
@@ -1091,7 +1091,7 @@ mod tests {
         settled_checks(&fake, slug, "abcdef1234");
         fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, json!([{ "filename": "backend/src/a.rs" }, { "filename": ".github/workflows/ci.yml" }]));
         let pr = register(&st, &dev.id, slug, 2, None).await.unwrap();
-        assert!(!pr.draft && pr.changes_workflows && pr.kind_sha == pr.head_sha, "{pr:?}");
+        assert!(!pr.draft && pr.changes_workflows == Some(true) && pr.kind_sha == pr.head_sha, "{pr:?}");
         assert_eq!(serde_json::to_value(&pr).unwrap()["changes_workflows"], json!(true), "the card gets it");
         let item = crate::needs_you::collect(&st).unwrap().into_iter().find(|i| i.kind == "pr_workflows").unwrap();
         assert_eq!(crate::needs_you::to_push(&item).kind, "delivery_stalled");
@@ -1106,8 +1106,29 @@ mod tests {
         settled_checks(&fake, slug, "fedcba9876");
         fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, json!([{ "filename": "backend/src/a.rs" }]));
         let pr = refresh(&st, &pr.id).await.unwrap();
-        assert!(!pr.changes_workflows && pr.kind_sha == "fedcba9876");
+        assert!(pr.changes_workflows == Some(false) && pr.kind_sha == "fedcba9876");
         assert_eq!(flagged(&st), 0);
+    }
+
+    /// #701: a PR stored before `changes_workflows` existed has its files read once more, so it's flagged too; and a
+    /// local action under `.github/actions/` counts as a workflow change.
+    #[tokio::test]
+    async fn a_pr_stored_before_the_flag_is_read_once_and_actions_count() {
+        let st = state_with_token();
+        let fake = own_fake(&st);
+        let mut pr = draft_pr(&st, &fake, "wf-old", 3, &[], &[".github/actions/setup/action.yml"]).await;
+        assert_eq!(pr.changes_workflows, Some(true), "a local action runs with the repo's secrets too");
+        let files = || fake.seen("/repos/octo/wf-old/pulls/3/files").len();
+        assert_eq!(files(), 1);
+
+        // As stored before the upgrade: its kind is known for its head, the flag isn't.
+        pr.changes_workflows = None;
+        st.db.save_pull_request(&pr).unwrap();
+        let pr = refresh(&st, &pr.id).await.unwrap();
+        assert_eq!((pr.changes_workflows, files()), (Some(true), 2), "read once more, for the flag");
+        assert_eq!(crate::needs_you::collect(&st).unwrap().into_iter().filter(|i| i.kind == "pr_workflows").count(), 1);
+        refresh(&st, &pr.id).await.unwrap();
+        assert_eq!(files(), 2, "then not again for the same head");
     }
 
     #[tokio::test]

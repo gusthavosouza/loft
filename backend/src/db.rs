@@ -609,9 +609,10 @@ pub struct PullRequest {
     /// What the files changed at `kind_sha` make this PR: ios | ui | backend | docs (it decides the verdicts it needs).
     pub kind: String,
     pub kind_sha: String,
-    /// The files changed at `kind_sha` touch `.github/workflows/`: on a branch of the repo those run with its secrets,
-    /// so the card and Needs you flag it (#701). More files than one page lists counts as touching them.
-    pub changes_workflows: bool,
+    /// The files changed at `kind_sha` touch `.github/workflows/` or `.github/actions/`: on a branch of the repo those
+    /// run with its secrets, so the card and Needs you flag it (#701). More files than one page lists counts as touching
+    /// them. None: not read yet, as for a PR stored before it existed, so its files are read once more.
+    pub changes_workflows: Option<bool>,
     /// Commits on the base branch the head doesn't have, from GitHub's compare; 0 when up to date or unknown.
     pub behind_by: i64,
     /// The head commit Loft marked ready, so it is done once and a draft the user chose to keep isn't flipped again.

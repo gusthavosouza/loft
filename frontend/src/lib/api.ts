@@ -468,8 +468,9 @@ export type PullRequest = {
   labels?: string[];
   /** Commits on the base the branch doesn't have; 0 when up to date. An older server doesn't send it. */
   behind_by?: number;
-  /** Its head changes `.github/workflows/`, which runs with the repo's secrets. An older server doesn't send it. */
-  changes_workflows?: boolean;
+  /** Its head changes `.github/workflows/` or `.github/actions/`, which run with the repo's secrets; null until its
+   *  files are read. An older server doesn't send it. */
+  changes_workflows?: boolean | null;
   /** The head commit its files (kind, `changes_workflows`) were read for, and its current head. */
   kind_sha?: string;
   head_sha?: string;

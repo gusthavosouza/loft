@@ -54,8 +54,9 @@ impl Budget {
             let used = h("x-ratelimit-used").unwrap_or(limit - remaining);
             b.resources.insert(resource, json!({ "limit": limit, "remaining": remaining, "used": used, "reset": reset }));
         }
-        if let Some(v) = headers.get("x-oauth-scopes").and_then(|v| v.to_str().ok()) {
-            b.scopes = Some(v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect());
+        // Every full answer says it again, so a switch to a fine-grained token (no header) clears a classic one's (#701).
+        if !not_modified {
+            b.scopes = headers.get("x-oauth-scopes").and_then(|v| v.to_str().ok()).map(|v| v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect());
         }
         let c = b.by_source.entry(source()).or_default();
         if not_modified { c.1 += 1 } else { c.0 += 1 }
@@ -605,6 +606,9 @@ pub(crate) mod tests {
         assert_eq!(scopes(&st), json!(["repo", "workflow", "read:org"]));
         answer(&st, &[("x-oauth-scopes", "repo")]);
         assert_eq!(scopes(&st), json!(["repo"]));
+        // Switched to a fine-grained token: its answers carry no scopes, so Settings no longer shows the old ones.
+        answer(&st, &[]);
+        assert_eq!(scopes(&st), Value::Null, "the classic token's scopes don't outlive it");
     }
 
 

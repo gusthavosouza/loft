@@ -171,7 +171,7 @@ export function PullRequestCard({ pr, after }: { pr: PullRequest; after?: number
 
       {pr.state === "open" && pr.changes_workflows && pr.kind_sha === pr.head_sha && (
         <Callout tone="warn" icon={<AlertTriangle />} className="mx-4 mb-3">
-          It changes <code className="font-mono">.github/workflows/</code>: on a branch of the repo that runs with its secrets. Read the change before its CI runs.
+          It changes <code className="font-mono">.github/workflows/</code> or <code className="font-mono">.github/actions/</code>: on a branch of the repo that runs with its secrets. Read the change before its CI runs.
         </Callout>
       )}
 

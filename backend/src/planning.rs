@@ -8849,7 +8849,7 @@ pub(crate) mod tests {
         assert!(at("- Test seams:") < at("# Planning: CI mode") && at("# Planning: CI mode") < at("# Planning: new project"));
         for want in [
             "Your project's repo is private, so GitHub bills every Actions minute",
-            "Right after the Test seams question, ask the project's CI mode as a round question with your recommendation: `per_ticket`",
+            "Right after the Test seams question, ask the project's CI mode as a `single_choice` round question whose options are exactly `per_ticket` and `at_the_end`",
             "suggest the draft pattern for the workflows",
             "`if: github.event.pull_request.draft == false`",
             "Pass the answer as `ci_mode` to `mcp__loft__publish_spec`",
@@ -8939,8 +8939,8 @@ pub(crate) mod tests {
         let out = mcp_call(&st, &a, "publish_spec", &spec("at_the_end")).await.unwrap().unwrap();
         assert!(out.contains("The CI mode wasn't saved"), "{out}");
 
-        // Once the user answered it in the grill, it's saved, with the agent as who changed it.
-        crate::grill::tests::round(&st, &a, &["CI mode, again?"]).unwrap();
+        // Once the user answered the CI-mode question in the grill, it's saved, with the agent as who changed it.
+        crate::grill::tests::ci_round(&st, &a);
         let qid = crate::grill::active(&st, &a.id).unwrap().rounds[1].questions[0].id.clone();
         crate::grill::tests::answer(&st, &a, &qid, "At the end");
         crate::grill::tests::send(&st, &a);
