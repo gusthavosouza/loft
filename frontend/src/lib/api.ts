@@ -468,6 +468,11 @@ export type PullRequest = {
   labels?: string[];
   /** Commits on the base the branch doesn't have; 0 when up to date. An older server doesn't send it. */
   behind_by?: number;
+  /** Its head changes `.github/workflows/`, which runs with the repo's secrets. An older server doesn't send it. */
+  changes_workflows?: boolean;
+  /** The head commit its files (kind, `changes_workflows`) were read for, and its current head. */
+  kind_sha?: string;
+  head_sha?: string;
 };
 
 export type AgentSummary = {
@@ -625,6 +630,9 @@ export type GithubBudget = {
   resources: Record<string, { limit: number; remaining: number; used: number; reset: number }>;
   by_source: Record<string, { requests: number; not_modified: number }>;
   window_reset: number | null;
+  /** The token's scopes as GitHub listed them (a classic token); null for a fine-grained or app token. An older
+   *  server doesn't send it. */
+  scopes?: string[] | null;
 };
 
 /** An owner's (org or account) GitHub Actions minutes this month, in UTC: the org's billed minutes (`billing`, when the

@@ -91,6 +91,7 @@ function GithubUsage() {
             </div>
           ))}
           <p className="text-[11.5px] text-fg-3">The limit is per GitHub account, so the agents' own <code className="font-mono">gh</code> commands use it too.</p>
+          <WorkflowScope scopes={b.scopes} />
           {rows.length > 0 && (
             <table className="w-full text-[12.5px]">
               <thead>
@@ -115,6 +116,24 @@ function GithubUsage() {
       )}
       <ActionsQuotas />
     </SettingsCard>
+  );
+}
+
+/** Whether Loft's GitHub token can push changes to `.github/workflows/` (the `workflow` scope), which run with a repo's
+ *  secrets once pushed to one of its branches. */
+function WorkflowScope({ scopes }: { scopes?: string[] | null }) {
+  if (scopes === undefined) return null;
+  const code = (s: string) => <code className="font-mono">{s}</code>;
+  return (
+    <p className="text-[12.5px] text-fg-2">
+      {scopes === null ? (
+        <>Workflows: GitHub lists no scopes for this token (fine-grained or app), so check its Workflows permission on GitHub.</>
+      ) : scopes.includes("workflow") ? (
+        <>Workflows: the token has the {code("workflow")} scope, so it can push changes to {code(".github/workflows/")}. Loft flags a PR that does.</>
+      ) : (
+        <>Workflows: the token has no {code("workflow")} scope, so it can't push changes to {code(".github/workflows/")}.</>
+      )}
+    </p>
   );
 }
 

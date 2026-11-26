@@ -361,6 +361,19 @@ fn clip(s: &str, max: usize) -> String {
     s.trim().chars().take(max).collect()
 }
 
+/// Whether `agent_id`'s running grill asked `project`'s CI mode (a private repo) and an answer the user sent
+/// names `mode` (`at_the_end` or `at the end`): typed, or a recommendation accepted or left to the agent.
+pub fn answered_ci_mode(state: &AppState, agent_id: &str, project: &str, mode: &str) -> bool {
+    let Some(s) = active(state, agent_id) else { return false };
+    let words = |t: &str| t.to_lowercase().replace(['_', '-'], " ");
+    let mode = words(mode);
+    s.private_repos.iter().any(|p| p == project)
+        && s.rounds.iter().filter(|r| r.sent_at.is_some()).flat_map(|r| &r.questions).any(|q| {
+            let said = if q.accepted || q.state == "decided" { Some(&q.recommendation) } else { q.answer.as_ref() };
+            said.is_some_and(|a| words(a).contains(&mode))
+        })
+}
+
 /// The round waiting for the user's answers, if any.
 pub fn open_round(s: &Session) -> Option<&Round> {
     s.rounds.last().filter(|r| r.sent_at.is_none())
@@ -1431,7 +1444,7 @@ pub(crate) mod tests {
         mcp_call(st, a, "grill_round", &json!({ "topic": "Pricing", "questions": qs.iter().map(|t| q(t)).collect::<Vec<_>>() })).unwrap()
     }
 
-    fn answer(st: &AppState, a: &Agent, qid: &str, text: &str) -> Routed {
+    pub(crate) fn answer(st: &AppState, a: &Agent, qid: &str, text: &str) -> Routed {
         let s = active(st, &a.id).unwrap();
         on_user_message(st, a, text, Some(&json!({ "role": "answer", "session_id": s.id, "question_id": qid })), json!({})).unwrap()
     }

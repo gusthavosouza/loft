@@ -101,6 +101,7 @@ async fn refresh_once(state: &AppState, id: &str) -> Result<PullRequest> {
                 pr.etag = etag;
                 clear_stale_passes(state, &mut pr).await;
             }
+            files_read_if_open(state, &mut pr).await;
             mark_ready_if_due(state, &mut pr).await;
             pr.error = None;
             pr.gone = false;
@@ -397,22 +398,38 @@ async fn mark_ready_if_due(state: &AppState, pr: &mut PullRequest) {
     }
 }
 
-/// Reads the PR's kind for its head when it isn't known yet (one files read per head). False when that fails.
+/// Whether a PR changing `files` changes a GitHub Actions workflow.
+fn changes_workflows(files: &[String]) -> bool {
+    files.iter().any(|f| f.starts_with(".github/workflows/"))
+}
+
+/// Reads an open PR's files once per head, so a ready PR is flagged for changing workflows too, not only a draft.
+async fn files_read_if_open(state: &AppState, pr: &mut PullRequest) {
+    if pr.state == "open" && !pr.gone && !pr.head_sha.is_empty() {
+        kind_known(state, pr).await;
+    }
+}
+
+/// Reads the PR's kind, and whether it changes workflows, for its head when they aren't known yet (one files read
+/// per head). False when that fails.
 async fn kind_known(state: &AppState, pr: &mut PullRequest) -> bool {
     if pr.kind_sha == pr.head_sha {
         return true;
     }
     // More files than one page lists: take the strictest kind rather than guess.
     let kind = if pr.changed_files > 100 {
-        Ok("ios")
+        Ok(("ios", true))
     } else {
         match github::get(state, &format!("/repos/{}/pulls/{}/files?per_page=100", pr.slug, pr.number)).await {
-            Ok(v) => Ok(kind_of(&v.as_array().into_iter().flatten().filter_map(|f| f["filename"].as_str().map(String::from)).collect::<Vec<_>>())),
+            Ok(v) => {
+                let files: Vec<String> = v.as_array().into_iter().flatten().filter_map(|f| f["filename"].as_str().map(String::from)).collect();
+                Ok((kind_of(&files), changes_workflows(&files)))
+            }
             Err(e) => Err(e),
         }
     };
     match kind {
-        Ok(k) => (pr.kind, pr.kind_sha) = (k.into(), pr.head_sha.clone()),
+        Ok((k, w)) => (pr.kind, pr.changes_workflows, pr.kind_sha) = (k.into(), w, pr.head_sha.clone()),
         Err(e) => {
             tracing::warn!("files of {}#{}: {e}", pr.slug, pr.number);
             return false;
@@ -554,6 +571,7 @@ async fn refresh_batch(state: &AppState, prs: &[PullRequest]) -> Result<()> {
             apply_graphql(&mut pr, node);
             pr.error = None;
             clear_stale_passes(state, &mut pr).await;
+            files_read_if_open(state, &mut pr).await;
             mark_ready_if_due(state, &mut pr).await;
             set_merge_method(state, &mut pr).await;
         }
@@ -672,7 +690,7 @@ mod tests {
         let ours = list.as_array().unwrap().iter().find(|v| v["id"] == pr.id).unwrap();
         assert_eq!(ours["labels"], json!(["tests:green", "qa:failed", "security:passed"]));
         assert_eq!(fake.seen("/").len(), before, "reading the PR list asks GitHub for nothing");
-        assert_eq!(fake.seen("/repos/octo/pr-labels/pulls/5").len(), 1, "the labels came with the one PR request");
+        assert_eq!(fake.seen("/repos/octo/pr-labels/pulls/5").iter().filter(|r| r.path == "/repos/octo/pr-labels/pulls/5").count(), 1, "the labels came with the one PR request");
     }
 
     fn settled_checks(fake: &crate::github::tests::Fake, slug: &str, sha: &str) {
@@ -688,6 +706,7 @@ mod tests {
         let a = crate::tasks::tests::agent(&st, "Dev");
         fake.in_turn("GET", "/repos/octo/pr-etag/pulls/7", vec![(200, pull(slug, 7, "abc")), (304, Value::Null)]);
         fake.with_headers("GET", "/repos/octo/pr-etag/pulls/7", &[("etag", "\"v1\"")]);
+        fake.route("GET", "/repos/octo/pr-etag/pulls/7/files", 200, json!([{ "filename": "backend/src/a.rs" }]));
         settled_checks(&fake, slug, "abc");
 
         let pr = register(&st, &a.id, slug, 7, None).await.unwrap();
@@ -695,8 +714,9 @@ mod tests {
         let before_checks = fake.seen("/repos/octo/pr-etag/commits/").len();
         let pr = refresh(&st, &pr.id).await.unwrap();
         assert_eq!((pr.title.as_str(), pr.checks["passed"].as_i64(), pr.error.as_deref()), ("Retry cap", Some(1), None), "the card keeps what it had");
-        let pulls = fake.seen("/repos/octo/pr-etag/pulls/7");
+        let pulls: Vec<_> = fake.seen("/repos/octo/pr-etag/pulls/7").into_iter().filter(|r| r.path == "/repos/octo/pr-etag/pulls/7").collect();
         assert_eq!(pulls.len(), 2);
+        assert_eq!(fake.seen("/repos/octo/pr-etag/pulls/7/files").len(), 1, "its files are read once, for its first head");
         assert_eq!(pulls[1].headers["if-none-match"], "\"v1\"");
         assert_eq!(fake.seen("/repos/octo/pr-etag/commits/").len(), before_checks, "settled checks on the same head aren't read again");
     }
@@ -796,7 +816,9 @@ mod tests {
         }));
 
         refresh_batch(&st, &prs).await.unwrap();
-        assert_eq!(fake.seen("/").len(), 1, "one request for three PRs, no REST calls");
+        assert_eq!(fake.seen("/graphql").len(), 1, "one request for three PRs");
+        let rest: Vec<String> = fake.seen("/repos/").into_iter().map(|r| r.path).collect();
+        assert_eq!(rest, ["/repos/octo/pr-batch/pulls/1/files?per_page=100"], "the only REST call: the open PR's files, for its new head");
         let q = fake.seen("/graphql")[0].body["query"].as_str().unwrap().to_string();
         assert!(q.contains(r#"p0: repository(owner: "octo", name: "pr-batch") { pullRequest(number: 1)"#) && q.contains("p2:"), "{q}");
 
@@ -1049,6 +1071,43 @@ mod tests {
         assert_eq!(k(&["docs/a.md", "notes/b.txt"]), "docs");
         assert_eq!(k(&["docs/a.md", "setup.sh"]), "backend");
         assert_eq!(k(&[]), "backend", "nothing known: not docs-only");
+    }
+
+    /// #701: a PR changing `.github/workflows/` runs it with the repo's secrets, so its card and Needs you flag it,
+    /// a ready PR as well as a draft, once per head.
+    #[tokio::test]
+    async fn a_pr_changing_workflows_is_flagged_on_its_card_and_in_needs_you() {
+        let st = state_with_token();
+        let fake = own_fake(&st);
+        let flagged = |st: &AppState| crate::needs_you::collect(st).unwrap().into_iter().filter(|i| i.kind == "pr_workflows").count();
+        let plain = draft_pr(&st, &fake, "wf-plain", 1, &[], &["backend/src/a.rs", ".github/dependabot.yml"]).await;
+        assert!(!plain.changes_workflows);
+        assert_eq!(flagged(&st), 0);
+
+        // A ready PR: its files are read too.
+        let slug = "octo/wf-ready";
+        let (dev, _) = team(&st, "wf-ready");
+        fake.route("GET", &format!("/repos/{slug}/pulls/2"), 200, pull(slug, 2, "abcdef1234"));
+        settled_checks(&fake, slug, "abcdef1234");
+        fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, json!([{ "filename": "backend/src/a.rs" }, { "filename": ".github/workflows/ci.yml" }]));
+        let pr = register(&st, &dev.id, slug, 2, None).await.unwrap();
+        assert!(!pr.draft && pr.changes_workflows && pr.kind_sha == pr.head_sha, "{pr:?}");
+        assert_eq!(serde_json::to_value(&pr).unwrap()["changes_workflows"], json!(true), "the card gets it");
+        let item = crate::needs_you::collect(&st).unwrap().into_iter().find(|i| i.kind == "pr_workflows").unwrap();
+        assert_eq!(crate::needs_you::to_push(&item).kind, "delivery_stalled");
+        let v = crate::needs_you::snapshot(&st).unwrap();
+        let i = v["items"].as_array().unwrap().iter().find(|i| i["type"] == "pr_workflows").unwrap();
+        assert_eq!((i["id"].clone(), i["urgency"].clone()), (json!(format!("pr_workflows:{}:abcdef1234", pr.id)), json!(2)));
+        assert!(i["title"].as_str().unwrap().starts_with("octo/wf-ready#2") && i["reason"].as_str().unwrap().contains(".github/workflows/"), "{i}");
+        assert_eq!(i["actions"][0]["target"]["url"], json!("https://github.com/octo/wf-ready/pull/2/files"));
+
+        // A new head without the workflow change: no longer flagged.
+        fake.route("GET", &format!("/repos/{slug}/pulls/2"), 200, pull(slug, 2, "fedcba9876"));
+        settled_checks(&fake, slug, "fedcba9876");
+        fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, json!([{ "filename": "backend/src/a.rs" }]));
+        let pr = refresh(&st, &pr.id).await.unwrap();
+        assert!(!pr.changes_workflows && pr.kind_sha == "fedcba9876");
+        assert_eq!(flagged(&st), 0);
     }
 
     #[tokio::test]
