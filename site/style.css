@@ -302,6 +302,7 @@ footer a:hover { color: var(--fg); }
 .shots figcaption { margin-top: 18px; color: var(--fg-2); font-size: 14px; }
 .shots figcaption b { display: block; color: var(--fg); font-size: 16px; font-weight: 500; margin-bottom: 4px; }
 /* the Mac page: window screenshots instead of phones */
+a > .mac-shot { cursor: zoom-in; }
 .mac-shot { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line-strong); box-shadow: 0 50px 120px -50px rgba(200, 242, 109, .25); }
 .focus-shots { display: flex; align-items: center; gap: 28px; }
 .focus-shots .mac-shot { flex: 1; min-width: 0; }
