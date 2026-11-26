@@ -69,6 +69,7 @@ function PendingBadge() {
   if (!count) return null;
   // On phones it is just the icon with the count on its corner, like the Needs you badge, so the top bar still fits.
   const pill = "relative flex items-center gap-1.5 rounded-full border border-warn/30 bg-warn/10 px-2.5 py-1 font-mono text-[11px] text-warn max-lg:size-7 max-lg:justify-center max-lg:p-0";
+  const ariaLabel = `${count} permission${count > 1 ? "s" : ""} pending`;
   const label = (
     <>
       <ShieldAlert className="size-3.5" />
@@ -77,7 +78,7 @@ function PendingBadge() {
     </>
   );
   if (count === 1) {
-    return <Link to={items[0].href} className={pill} title={items[0].title}>{label}</Link>;
+    return <Link to={items[0].href} className={pill} title={items[0].title} aria-label={ariaLabel}>{label}</Link>;
   }
   return (
     <div ref={box} className="relative">
@@ -85,6 +86,7 @@ function PendingBadge() {
         type="button"
         className={pill}
         title={`Oldest: ${items[0].title}`}
+        aria-label={ariaLabel}
         aria-expanded={open}
         onClick={() => {
           if (!open) navigate(items[0].href);
@@ -197,7 +199,7 @@ export default function App() {
   const showSimulator = useShowSimulator();
   const tab = ({ isActive }: { isActive: boolean }) =>
     cx(
-      "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors max-md:px-2 max-[24rem]:px-1.5",
+      "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors max-lg:px-2 max-[24rem]:px-1.5",
       isActive ? "bg-white/[0.08] text-fg" : "text-fg-3 hover:text-fg",
     );
   return (
