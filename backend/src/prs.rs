@@ -398,9 +398,21 @@ async fn mark_ready_if_due(state: &AppState, pr: &mut PullRequest) {
     }
 }
 
-/// Whether a PR changing `files` changes a GitHub Actions workflow, or a local action one can use.
-fn changes_workflows(files: &[String]) -> bool {
-    files.iter().any(|f| f.starts_with(".github/workflows/") || f.starts_with(".github/actions/"))
+/// A key for what a PR changes in GitHub Actions workflows or local actions (also renamed from there), from GitHub's
+/// files list: None when it changes none.
+fn workflows_key(files: &[Value]) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let ci = |f: &Value, k: &str| f[k].as_str().is_some_and(|n| n.starts_with(".github/workflows/") || n.starts_with(".github/actions/"));
+    let mut changed: Vec<String> = files
+        .iter()
+        .filter(|f| ci(f, "filename") || ci(f, "previous_filename"))
+        .map(|f| format!("{}\t{}\t{}\t{}", f["filename"].as_str().unwrap_or(""), f["previous_filename"].as_str().unwrap_or(""), f["status"].as_str().unwrap_or(""), f["sha"].as_str().unwrap_or("")))
+        .collect();
+    if changed.is_empty() {
+        return None;
+    }
+    changed.sort();
+    Some(Sha256::digest(changed.join("\n").as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect())
 }
 
 /// Reads an open PR's files once per head, so a ready PR is flagged for changing workflows too, not only a draft.
@@ -418,21 +430,25 @@ async fn kind_known(state: &AppState, pr: &mut PullRequest) -> bool {
     }
     // More files than one page lists: take the strictest kind rather than guess.
     let kind = if pr.changed_files > 100 {
-        Ok(("ios", true))
+        Ok(("ios", Some(pr.head_sha.clone())))
     } else {
         match github::get(state, &format!("/repos/{}/pulls/{}/files?per_page=100", pr.slug, pr.number)).await {
             Ok(v) => {
-                let files: Vec<String> = v.as_array().into_iter().flatten().filter_map(|f| f["filename"].as_str().map(String::from)).collect();
-                // A workflow renamed out of its folder still changed it.
-                let before: Vec<String> = v.as_array().into_iter().flatten().filter_map(|f| f["previous_filename"].as_str().map(String::from)).collect();
-                Ok((kind_of(&files), changes_workflows(&files) || changes_workflows(&before)))
+                let files: Vec<Value> = v.as_array().cloned().unwrap_or_default();
+                let names: Vec<String> = files.iter().filter_map(|f| f["filename"].as_str().map(String::from)).collect();
+                Ok((kind_of(&names), workflows_key(&files)))
             }
             Err(e) => Err(e),
         }
     };
     match kind {
-        // Sticky: once a head changed workflows, a revert doesn't clear it.
-        Ok((k, w)) => (pr.kind, pr.changes_workflows, pr.kind_sha) = (k.into(), Some(w || pr.changes_workflows == Some(true)), pr.head_sha.clone()),
+        // Sticky: once a head changed workflows, a revert doesn't clear it; a new change gets a new key.
+        Ok((k, w)) => {
+            (pr.kind, pr.changes_workflows, pr.kind_sha) = (k.into(), Some(w.is_some() || pr.changes_workflows == Some(true)), pr.head_sha.clone());
+            if let Some(key) = w {
+                pr.workflows_key = key;
+            }
+        }
         Err(e) => {
             tracing::warn!("files of {}#{}: {e}", pr.slug, pr.number);
             return false;
@@ -1092,7 +1108,7 @@ mod tests {
         let (dev, _) = team(&st, "wf-ready");
         fake.route("GET", &format!("/repos/{slug}/pulls/2"), 200, pull(slug, 2, "abcdef1234"));
         settled_checks(&fake, slug, "abcdef1234");
-        fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, json!([{ "filename": "backend/src/a.rs" }, { "filename": ".github/workflows/ci.yml" }]));
+        fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, json!([{ "filename": "backend/src/a.rs" }, { "filename": ".github/workflows/ci.yml", "status": "modified", "sha": "blob1" }]));
         let pr = register(&st, &dev.id, slug, 2, None).await.unwrap();
         assert!(!pr.draft && pr.changes_workflows == Some(true) && pr.kind_sha == pr.head_sha, "{pr:?}");
         assert_eq!(serde_json::to_value(&pr).unwrap()["changes_workflows"], json!(true), "the card gets it");
@@ -1100,7 +1116,8 @@ mod tests {
         assert_eq!(crate::needs_you::to_push(&item).kind, "delivery_stalled");
         let v = crate::needs_you::snapshot(&st).unwrap();
         let i = v["items"].as_array().unwrap().iter().find(|i| i["type"] == "pr_workflows").unwrap();
-        assert_eq!((i["id"].clone(), i["urgency"].clone()), (json!(format!("pr_workflows:{}", pr.id)), json!(2)));
+        assert_eq!((i["id"].clone(), i["urgency"].clone()), (json!(format!("pr_workflows:{}:{}", pr.id, pr.workflows_key)), json!(2)));
+        assert_eq!(pr.workflows_key.len(), 16, "{pr:?}");
         assert!(i["title"].as_str().unwrap().starts_with("octo/wf-ready#2") && i["reason"].as_str().unwrap().contains(".github/workflows/"), "{i}");
         assert_eq!(i["actions"][0]["target"]["url"], json!("https://github.com/octo/wf-ready/pull/2/files"));
 
@@ -1121,8 +1138,25 @@ mod tests {
         assert_eq!(flagged(&st), 1);
 
         // Until the user dismisses it.
-        let _ = crate::needs_you::dismiss_item(axum::extract::State(st.clone()), axum::extract::Path(format!("pr_workflows:{}", pr.id))).await.unwrap();
+        let first = pr.workflows_key.clone();
+        let _ = crate::needs_you::dismiss_item(axum::extract::State(st.clone()), axum::extract::Path(format!("pr_workflows:{}:{first}", pr.id))).await.unwrap();
         assert_eq!(flagged(&st), 0);
+
+        // A new head with the same workflow change: still dismissed.
+        let head = |sha: &str, files: Value| {
+            fake.route("GET", &format!("/repos/{slug}/pulls/2"), 200, pull(slug, 2, sha));
+            settled_checks(&fake, slug, sha);
+            fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, files);
+        };
+        head("1111111111", json!([{ "filename": ".github/workflows/ci.yml", "status": "modified", "sha": "blob1" }, { "filename": "backend/src/b.rs" }]));
+        let pr = refresh(&st, &pr.id).await.unwrap();
+        assert_eq!((pr.workflows_key.as_str(), flagged(&st)), (first.as_str(), 0), "the same change isn't raised again");
+
+        // A head that changes the workflow again: raised again, as a new item.
+        head("2222222222", json!([{ "filename": ".github/workflows/ci.yml", "status": "modified", "sha": "blob2" }]));
+        let pr = refresh(&st, &pr.id).await.unwrap();
+        assert_ne!(pr.workflows_key, first);
+        assert_eq!(flagged(&st), 1, "a second change doesn't slip by");
     }
 
     /// #701 L1: a workflow renamed out of `.github/workflows/` changed it too.

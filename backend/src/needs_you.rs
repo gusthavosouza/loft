@@ -749,9 +749,10 @@ pub(crate) fn collect(state: &AppState) -> Result<Vec<Item>, String> {
         });
     }
     // Open PRs that changed a GitHub Actions workflow or action: pushed to a branch of the repo, it runs with the repo's
-    // secrets, so the user checks it (#701). One item per PR, until dismissed or closed: a later revert doesn't hide it.
+    // secrets, so the user checks it (#701). One item per PR and change: a later revert doesn't hide it, and a dismissed
+    // one comes back when the workflows change again.
     for p in prs.iter().filter(|p| p.state == "open" && !p.gone && p.changes_workflows == Some(true)) {
-        let id = format!("pr_workflows:{}", p.id);
+        let id = format!("pr_workflows:{}:{}", p.id, p.workflows_key);
         items.push(Item {
             kind: "pr_workflows",
             urgency: 2,

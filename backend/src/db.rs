@@ -614,6 +614,10 @@ pub struct PullRequest {
     /// reverts the change, or a files read that fails, never clears it. More files than one page lists counts as
     /// touching them. None: not read yet, as for a PR stored before it existed, so its files are read once more.
     pub changes_workflows: Option<bool>,
+    /// What the workflow and action changes were, last time a head had some: a hash of those files' names, status and
+    /// blob shas (the head itself when there were more files than one page lists). Needs you keys its item by it, so a
+    /// dismissed warning comes back when they change again, and not on every push of the same change.
+    pub workflows_key: String,
     /// Commits on the base branch the head doesn't have, from GitHub's compare; 0 when up to date or unknown.
     pub behind_by: i64,
     /// The head commit Loft marked ready, so it is done once and a draft the user chose to keep isn't flipped again.
