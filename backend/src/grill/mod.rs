@@ -373,7 +373,8 @@ pub fn answered_ci_mode(state: &AppState, agent_id: &str, project: &str, mode: &
         && s.rounds.iter().filter(|r| r.sent_at.is_some()).flat_map(|r| &r.questions).any(|q| {
             let mut options: Vec<String> = q.options.iter().map(|o| words(o)).collect();
             options.sort();
-            let said = if q.accepted || q.state == "decided" { Some(&q.recommendation) } else { q.answer.as_ref() };
+            // A `discuss` answer is the user's comment, not a choice.
+            let said = if q.accepted || q.state == "decided" { Some(&q.recommendation) } else { q.answer.as_ref().filter(|_| q.state != "discuss") };
             options == modes && said.is_some_and(|a| words(a) == mode)
         })
 }
@@ -1484,6 +1485,17 @@ pub(crate) mod tests {
         answer(&st, &b, &ids[1], "at the end, I guess");
         send(&st, &b);
         assert!(!answered_ci_mode(&st, &b.id, "ci-x", "at_the_end"));
+
+        // A comment to discuss the CI-mode question isn't a choice, even when it's a mode's exact words.
+        let c = planner(&st, "Dev3");
+        on_user_message_with(&st, &c, "grill me", Some(&json!({ "role": "start_request" })), json!({}), &["ci-x".into()]).unwrap();
+        ci_round(&st, &c);
+        let s = active(&st, &c.id).unwrap();
+        let qid = s.rounds[0].questions[0].id.clone();
+        on_user_message(&st, &c, "at_the_end", Some(&json!({ "role": "answer", "session_id": s.id, "question_id": qid, "discuss": true })), json!({})).unwrap();
+        send(&st, &c);
+        assert_eq!(active(&st, &c.id).unwrap().rounds[0].questions[0].state, "discuss");
+        assert!(!answered_ci_mode(&st, &c.id, "ci-x", "at_the_end"));
     }
 
     pub(crate) fn answer(st: &AppState, a: &Agent, qid: &str, text: &str) -> Routed {

@@ -423,13 +423,16 @@ async fn kind_known(state: &AppState, pr: &mut PullRequest) -> bool {
         match github::get(state, &format!("/repos/{}/pulls/{}/files?per_page=100", pr.slug, pr.number)).await {
             Ok(v) => {
                 let files: Vec<String> = v.as_array().into_iter().flatten().filter_map(|f| f["filename"].as_str().map(String::from)).collect();
-                Ok((kind_of(&files), changes_workflows(&files)))
+                // A workflow renamed out of its folder still changed it.
+                let before: Vec<String> = v.as_array().into_iter().flatten().filter_map(|f| f["previous_filename"].as_str().map(String::from)).collect();
+                Ok((kind_of(&files), changes_workflows(&files) || changes_workflows(&before)))
             }
             Err(e) => Err(e),
         }
     };
     match kind {
-        Ok((k, w)) => (pr.kind, pr.changes_workflows, pr.kind_sha) = (k.into(), Some(w), pr.head_sha.clone()),
+        // Sticky: once a head changed workflows, a revert doesn't clear it.
+        Ok((k, w)) => (pr.kind, pr.changes_workflows, pr.kind_sha) = (k.into(), Some(w || pr.changes_workflows == Some(true)), pr.head_sha.clone()),
         Err(e) => {
             tracing::warn!("files of {}#{}: {e}", pr.slug, pr.number);
             return false;
@@ -1097,17 +1100,43 @@ mod tests {
         assert_eq!(crate::needs_you::to_push(&item).kind, "delivery_stalled");
         let v = crate::needs_you::snapshot(&st).unwrap();
         let i = v["items"].as_array().unwrap().iter().find(|i| i["type"] == "pr_workflows").unwrap();
-        assert_eq!((i["id"].clone(), i["urgency"].clone()), (json!(format!("pr_workflows:{}:abcdef1234", pr.id)), json!(2)));
+        assert_eq!((i["id"].clone(), i["urgency"].clone()), (json!(format!("pr_workflows:{}", pr.id)), json!(2)));
         assert!(i["title"].as_str().unwrap().starts_with("octo/wf-ready#2") && i["reason"].as_str().unwrap().contains(".github/workflows/"), "{i}");
         assert_eq!(i["actions"][0]["target"]["url"], json!("https://github.com/octo/wf-ready/pull/2/files"));
 
-        // A new head without the workflow change: no longer flagged.
+        // A new head that reverts the workflow change: still flagged (security F1), with the same item.
         fake.route("GET", &format!("/repos/{slug}/pulls/2"), 200, pull(slug, 2, "fedcba9876"));
         settled_checks(&fake, slug, "fedcba9876");
         fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 200, json!([{ "filename": "backend/src/a.rs" }]));
         let pr = refresh(&st, &pr.id).await.unwrap();
-        assert!(pr.changes_workflows == Some(false) && pr.kind_sha == "fedcba9876");
+        assert!(pr.changes_workflows == Some(true) && pr.kind_sha == "fedcba9876", "a revert doesn't clear it");
+        assert_eq!(flagged(&st), 1);
+
+        // A head whose files can't be read keeps the flag (L4).
+        fake.route("GET", &format!("/repos/{slug}/pulls/2"), 200, pull(slug, 2, "0123456789"));
+        settled_checks(&fake, slug, "0123456789");
+        fake.route("GET", &format!("/repos/{slug}/pulls/2/files"), 500, json!({ "message": "boom" }));
+        let pr = refresh(&st, &pr.id).await.unwrap();
+        assert!(pr.changes_workflows == Some(true) && pr.kind_sha == "fedcba9876", "{pr:?}");
+        assert_eq!(flagged(&st), 1);
+
+        // Until the user dismisses it.
+        let _ = crate::needs_you::dismiss_item(axum::extract::State(st.clone()), axum::extract::Path(format!("pr_workflows:{}", pr.id))).await.unwrap();
         assert_eq!(flagged(&st), 0);
+    }
+
+    /// #701 L1: a workflow renamed out of `.github/workflows/` changed it too.
+    #[tokio::test]
+    async fn a_workflow_renamed_out_of_its_folder_is_flagged() {
+        let st = state_with_token();
+        let fake = own_fake(&st);
+        let slug = "octo/wf-renamed";
+        let (dev, _) = team(&st, "wf-renamed");
+        fake.route("GET", &format!("/repos/{slug}/pulls/4"), 200, pull(slug, 4, "abcdef1234"));
+        settled_checks(&fake, slug, "abcdef1234");
+        fake.route("GET", &format!("/repos/{slug}/pulls/4/files"), 200, json!([{ "filename": "old/ci.yml", "previous_filename": ".github/workflows/ci.yml" }]));
+        let pr = register(&st, &dev.id, slug, 4, None).await.unwrap();
+        assert_eq!(pr.changes_workflows, Some(true));
     }
 
     /// #701: a PR stored before `changes_workflows` existed has its files read once more, so it's flagged too; and a

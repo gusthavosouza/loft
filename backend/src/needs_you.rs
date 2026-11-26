@@ -748,16 +748,16 @@ pub(crate) fn collect(state: &AppState) -> Result<Vec<Item>, String> {
             id,
         });
     }
-    // Open PRs whose head changes a GitHub Actions workflow: pushed to a branch of the repo, it runs with the repo's
-    // secrets, so the user looks before its CI does (#701). One item per head.
-    for p in prs.iter().filter(|p| p.state == "open" && !p.gone && p.changes_workflows == Some(true) && p.kind_sha == p.head_sha) {
-        let id = format!("pr_workflows:{}:{}", p.id, p.head_sha);
+    // Open PRs that changed a GitHub Actions workflow or action: pushed to a branch of the repo, it runs with the repo's
+    // secrets, so the user checks it (#701). One item per PR, until dismissed or closed: a later revert doesn't hide it.
+    for p in prs.iter().filter(|p| p.state == "open" && !p.gone && p.changes_workflows == Some(true)) {
+        let id = format!("pr_workflows:{}", p.id);
         items.push(Item {
             kind: "pr_workflows",
             urgency: 2,
             title: text(&format!("{}#{}: {}", p.slug, p.number, p.title), MAX_TITLE),
-            reason: text("It changes .github/workflows/ or .github/actions/: check the change before its CI runs.", MAX_REASON),
-            text: text("A workflow changed on a branch of the repo runs with the repo's secrets. Read the workflow change on GitHub; if it shouldn't run, close the PR or cancel its run there.", MAX_TEXT),
+            reason: text("It changed .github/workflows/ or .github/actions/: its CI may already have run with the repo's secrets.", MAX_REASON),
+            text: text("A workflow or action changed on a branch of the repo runs with the repo's secrets as soon as it's pushed. Read the change and its Actions runs on GitHub; if it shouldn't run, cancel the runs and close the PR.", MAX_TEXT),
             agent: name(&p.agent_id),
             task_id: None,
             created_at: p.created_at.clone(),
